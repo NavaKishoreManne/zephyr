@@ -12,6 +12,9 @@
 #include <zephyr/init.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/sd/sd_spec.h>
+#if defined(CONFIG_DISK_ACCESS)
+#include <zephyr/storage/disk_access.h>
+#endif
 #include <stdlib.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -850,8 +853,46 @@ static char *mntpt_prepare(char *mntpt)
 }
 
 #if defined(CONFIG_FAT_FILESYSTEM_ELM)
+#if defined(CONFIG_DISK_ACCESS)
+static int shell_disk_init_from_mntpt(const struct shell *sh, const char *mntpt)
+{
+	const char *colon;
+	char disk_name[16];
+	size_t name_len;
+	int err;
+
+	if (mntpt[0] != '/') {
+		return 0;
+	}
+
+	colon = strchr(mntpt + 1, ':');
+	if (colon == NULL) {
+		return 0;
+	}
+
+	name_len = (size_t)(colon - (mntpt + 1));
+	if (name_len == 0U || name_len >= sizeof(disk_name)) {
+		shell_error(sh, "Invalid mount point \"%s\"", mntpt);
+		return -EINVAL;
+	}
+
+	memcpy(disk_name, mntpt + 1, name_len);
+	disk_name[name_len] = '\0';
+
+	err = disk_access_ioctl(disk_name, DISK_IOCTL_CTRL_INIT, NULL);
+	if (err != 0) {
+		shell_error(sh, "Disk \"%s\" init failed (%d)", disk_name, err);
+		return err;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_DISK_ACCESS */
+
 static int cmd_mount_fat(const struct shell *sh, size_t argc, char **argv)
 {
+	int res;
+
 	if (fatfs_mnt.mnt_point != NULL) {
 		shell_error(sh, "%s already mounted at %s", "FAT fs", fatfs_mnt.mnt_point);
 		return -EBUSY;
@@ -864,9 +905,17 @@ static int cmd_mount_fat(const struct shell *sh, size_t argc, char **argv)
 		return -EIO;
 	}
 
+#if defined(CONFIG_DISK_ACCESS)
+	res = shell_disk_init_from_mntpt(sh, mntpt);
+	if (res != 0) {
+		k_free(mntpt);
+		return res;
+	}
+#endif
+
 	fatfs_mnt.mnt_point = mntpt;
 
-	int res = fs_mount(&fatfs_mnt);
+	res = fs_mount(&fatfs_mnt);
 
 	if (res != 0) {
 		shell_error(sh, "Error mounting %s: %d", "FAT fs", res);
