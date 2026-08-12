@@ -6,15 +6,17 @@
 
 /**
  * @file
- * @brief New experimental USB device stack APIs and structures
+ * @brief USB host stack APIs and structures
  *
- * This file contains the USB device stack APIs and structures.
+ * Host-mode USB support in Zephyr (enumeration, class drivers, MSC helpers).
+ * Enable with ``CONFIG_USB_HOST_STACK``.
  */
 
 #ifndef ZEPHYR_INCLUDE_USBH_H_
 #define ZEPHYR_INCLUDE_USBH_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <zephyr/device.h>
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/util.h>
@@ -72,6 +74,7 @@ struct usbh_context {
 		.name = STRINGIFY(device_name),				\
 		.mutex = Z_MUTEX_INITIALIZER(device_name.mutex),	\
 		.dev = uhc_dev,						\
+		.udevs = SYS_DLIST_STATIC_INIT(&device_name.udevs),	\
 		.addr_ba = &ba_##device_name,				\
 	}
 
@@ -228,6 +231,43 @@ int usbh_disable(struct usbh_context *uhs_ctx);
  * @return 0 on success, other values on fail.
  */
 int usbh_shutdown(struct usbh_context *const uhs_ctx);
+
+/**
+ * @brief Select configuration and enable non-EP0 endpoints in the HCD.
+ */
+int usbh_device_set_configuration(struct usb_device *udev, uint8_t num);
+
+/**
+ * @brief Weak hook invoked when enumeration reaches @ref USB_STATE_CONFIGURED.
+ *
+ * Called from the USB host bus thread after SET_CONFIGURATION, descriptor parse,
+ * and the optional HCD configure hook complete. Override in the application to
+ * e.g. signal a semaphore instead of polling device state from @c main().
+ *
+ * @param udev Newly configured USB device
+ */
+void usbh_device_configured_notify(struct usb_device *udev);
+
+/**
+ * @brief Weak hook invoked when a USB device is disconnected.
+ *
+ * Called from the USB host bus thread before the device object is freed.
+ * Override to unmount volumes or drop stale @a udev references.
+ *
+ * @param udev Device being removed (valid only for the duration of this call)
+ */
+void usbh_device_removed_notify(struct usb_device *udev);
+
+/**
+ * @brief Return whether @a udev is still the connected root device in CONFIGURED state.
+ *
+ * Safe to call from application threads while the bus thread may disconnect the device.
+ *
+ * @param udev USB device pointer from host stack callbacks
+ *
+ * @return true when @a udev matches the host root device and is configured
+ */
+bool usbh_device_still_connected(const struct usb_device *udev);
 
 /**
  * @}

@@ -55,6 +55,18 @@ int usbh_req_setup(struct usb_device *const udev,
 		   const uint16_t wLength,
 		   struct net_buf *const buf)
 {
+	/*
+	 * One global binary sem for all EP0 control completions. A late callback
+	 * after timeout/dequeue, or any double-completion bug, can leave count=1.
+	 * The next wait would return immediately while the new xfer is still
+	 * in flight (stale xfer->err, early usbh_xfer_free) — typical symptom:
+	 * logs stop right after a successful control transfer.
+	 */
+	while (k_sem_take(&ch9_req_sync, K_NO_WAIT) == 0) {
+		LOG_WRN("ch9: drained stray control-transfer sync token before req0x%02x",
+			bRequest);
+	}
+
 	struct usb_setup_packet req = {
 		.bmRequestType = bmRequestType,
 		.bRequest = bRequest,
@@ -92,18 +104,22 @@ int usbh_req_setup(struct usb_device *const udev,
 		goto buf_alloc_err;
 	}
 
-	if (k_sem_take(&ch9_req_sync, K_MSEC(SETUP_REQ_TIMEOUT)) != 0) {
-		ret = usbh_xfer_dequeue(udev, xfer);
-		if (ret != 0) {
-			LOG_ERR("Failed to cancel transfer");
-			return ret;
-		}
+	LOG_DBG("usbh: ch9: waiting xfer (req=0x%02x wLength=%u)",
+		bRequest, wLength);
 
-		LOG_ERR("Timeout");
-		return -ETIMEDOUT;
+	if (k_sem_take(&ch9_req_sync, K_MSEC(SETUP_REQ_TIMEOUT)) != 0) {
+		/*
+		 * ep_enqueue blocks until the TD completes; this timeout means the
+		 * usbh_thread callback did not run. Try Stop EP cancel if still active.
+		 */
+		(void)usbh_xfer_dequeue(udev, xfer);
+		LOG_ERR("ch9: timeout waiting for completion callback (req=0x%02x)", bRequest);
+		ret = -ETIMEDOUT;
+		goto buf_alloc_err;
 	}
 
 	ret = xfer->err;
+	LOG_DBG("usbh: ch9: xfer done (req=0x%02x err=%d)", bRequest, ret);
 
 buf_alloc_err:
 	usbh_xfer_free(udev, xfer);

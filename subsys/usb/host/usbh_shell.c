@@ -811,7 +811,7 @@ static int cmd_device_address(const struct shell *sh,
 	if (err) {
 		shell_error(sh, "host: Failed to set address");
 	} else {
-		shell_print(sh, "host: New device address is %u", new_addr);
+		shell_print(sh, "host: New device address is %u", udev->addr);
 	}
 
 	return err;
