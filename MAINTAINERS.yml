@@ -6000,6 +6000,26 @@ Storage:
   tests:
     - storage
 
+SCSI:
+  status: odd fixes
+  files:
+    - subsys/scsi/
+    - include/zephyr/scsi/
+    - subsys/usb/host/msc/
+    - include/zephyr/usb/usb_msc_scsi.h
+    - include/zephyr/usb/usb_msc_disk.h
+    - drivers/disk/scsi_disk.c
+    - drivers/disk/scsi_partition.c
+    - include/zephyr/drivers/disk/scsi_disk.h
+    - include/zephyr/drivers/disk/scsi_partition.h
+    - include/zephyr/drivers/disk/sg_io.h
+    - tests/subsys/scsi/
+    - doc/services/storage/scsi.rst
+  labels:
+    - "area: Storage"
+  tests:
+    - scsi
+
 Storage ZMS:
   status: maintained
   maintainers:
