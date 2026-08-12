@@ -1,27 +1,35 @@
-# SPDX-FileCopyrightText: Copyright Nordic Semiconductor ASA
+# Copyright (c) 2022 Nordic Semiconductor ASA
 # SPDX-License-Identifier: Apache-2.0
 
 zephyr_library()
 zephyr_library_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 zephyr_library_sources(
-  usbh_ch9.c
-  usbh_class.c
-  usbh_core.c
-  usbh_api.c
-  usbh_device.c
-  usbh_desc.c
-  usbh_class.c
+	usbh_ch9.c
+	usbh_class.c
+	usbh_core.c
+	usbh_api.c
+	usbh_device.c
+	usbh_desc.c
+	usbh_hcd.c
 )
 
 zephyr_library_sources_ifdef(
-  CONFIG_USBH_SHELL
-  usbh_shell.c
+	CONFIG_USBH_SHELL
+	usbh_shell.c
 )
 
 zephyr_library_sources_ifdef(
-  CONFIG_USBH_VIDEO_CLASS
-  class/usbh_uvc.c
+	CONFIG_USBH_MSC
+	usbh_msc.c
+	usbh_msc_bot.c
+	usbh_msc_scsi.c
+	msc/usb_msc_lun.c
+)
+
+zephyr_library_sources_ifdef(
+	CONFIG_USBH_VIDEO_CLASS
+	class/usbh_uvc.c
 )
 
 zephyr_library_sources_ifdef(
