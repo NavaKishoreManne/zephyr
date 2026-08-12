@@ -6002,6 +6002,8 @@ Storage:
 
 SCSI:
   status: odd fixes
+  maintainers:
+    - navam
   files:
     - subsys/scsi/
     - include/zephyr/scsi/
@@ -6425,6 +6427,8 @@ USB:
     - sample.usb
     - sample.usbd
     - sample.usbh.shell
+    - sample.usb.host_msc
+    - usb.msc_host
 
 USB-C:
   status: maintained
