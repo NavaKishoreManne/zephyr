@@ -1,0 +1,17 @@
+/*
+ * Devicetree overlay: DWC3 xHCI USB host on versal_apu (&soc).
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
+
+&soc {
+	zephyr_uhc0: usb_host@fe200000 {
+		compatible = "snps,dwc3";
+		reg = <0x00 0xfe200000 0x00 0x10000>;
+		interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+		amd,usb2-wrapper-base = <0xFF9D0000>;
+		status = "okay";
+	};
+};
