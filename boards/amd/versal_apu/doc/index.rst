@@ -66,7 +66,13 @@ Flash to real hardware with PDI file:
 
 .. code-block:: console
 
-   west flash --runner xsdb --pdi /path/to/your.pdi --bl31 /path/to/your_bl31.elf
+   west flash --runner xsdb --pdi /path/to/your.pdi
+
+USB host MSC sample (FatFs on USB stick)::
+
+   west build -p always -b versal_apu samples/subsys/usb/host_msc -- \
+     -DDTC_OVERLAY_FILE=boards/versal_apu.overlay
+   west flash --runner xsdb --pdi /path/to/your.pdi
 
 You should see the following message on the console:
 

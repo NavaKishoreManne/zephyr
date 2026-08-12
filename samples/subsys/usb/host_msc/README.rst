@@ -1,21 +1,53 @@
 USB Host Mass Storage Sample
 ============================
 
-Demonstrates USB host enumeration, MSC Bulk-Only transport bring-up, optional
-FatFs disk_access binding, an interactive ``fs`` shell, and ``lsusb``-style device
-listing on Versal boards with ``snps,dwc3`` xHCI.
+Demonstrates USB host enumeration, MSC Bulk-Only transport bring-up, FatFs
+``disk_access`` binding, and an interactive ``fs`` shell on the in-tree
+``versal_apu`` board with ``snps,dwc3`` xHCI.
 
-Build (``versal_apu``)::
+Build (``versal_apu``)
+----------------------
+
+From the ``zephyr/`` directory (no ``BOARD_ROOT`` or board extensions required)::
 
   west build -p always -b versal_apu samples/subsys/usb/host_msc -- \
     -DDTC_OVERLAY_FILE=boards/versal_apu.overlay
 
+The USB host node is added under ``&soc`` (see ``boards/versal_apu.overlay``,
+mirrored in ``boards/amd/versal_apu/usb_host.overlay``).
+
+Flash
+-----
+
+Real Versal hardware needs a **PDI from your Vivado/Vitis design** (not shipped
+with Zephyr). BL31 is passed automatically by the board runner when TF-A is
+enabled::
+
+  west flash --runner xsdb --pdi /path/to/your.pdi
+
+If PDI programming fails (``ROM failed to handle config data``), power-cycle the
+board, confirm JTAG boot mode, and verify the PDI matches your silicon.
+
+Runtime
+-------
+
+After boot, plug a USB MSC stick and wait for::
+
+  USB MSC ready - fs mount fat /USB:
+
+Then at the shell::
+
+  fs mount fat /USB:
+  fs ls /USB:
+
+MSC bringup runs from the sample ``main()`` after enumeration
+(``CONFIG_USBH_MSC_AUTO_BRINGUP=n`` in ``boards/versal_apu.conf``).
+
 Hot-unplug
 ----------
 
-When the stick is removed, the USB host stack unmounts FatFs in the sample
-(optional), detaches ``scsi_disk`` volumes in ``usb_msc_disk``, then frees the
-USB device. Replug enumerates and binds again without rebooting.
+When the stick is removed, the sample unmounts FatFs, detaches ``scsi_disk``
+volumes, then frees the USB device. Replug enumerates again without rebooting.
 
 Large file write (10 MiB stress test)
 -------------------------------------
