@@ -174,6 +174,98 @@ int usbh_req_set_sfs_rwup(struct usb_device *const udev);
  */
 int usbh_req_clear_sfs_rwup(struct usb_device *const udev);
 
+#if IS_ENABLED(CONFIG_USBH_HUB)
+
+/**
+ * @brief GET_STATUS for a hub downstream port.
+ *
+ * @param hub Hub device
+ * @param port 1-based port number
+ * @param portstatus Output wPortStatus
+ * @param portchange Output wPortChange
+ *
+ * @retval 0 Status read succeeded
+ * @retval negative errno from control transfer
+ */
+int usbh_req_get_hcfs_port_status(struct usb_device *const hub, const uint8_t port,
+				  uint16_t *const portstatus, uint16_t *const portchange);
+
+/**
+ * @brief GET_STATUS for the hub device.
+ *
+ * @param hub Hub device
+ * @param hubstatus Output wHubStatus
+ * @param hubchange Output wHubChange
+ *
+ * @retval 0 Status read succeeded
+ * @retval negative errno from control transfer
+ */
+int usbh_req_get_hcfs_hub_status(struct usb_device *const hub, uint16_t *const hubstatus,
+				 uint16_t *const hubchange);
+
+/**
+ * @brief SET_FEATURE on a hub downstream port.
+ *
+ * @param hub Hub device
+ * @param port 1-based port number
+ * @param feature Hub class port feature selector
+ *
+ * @retval 0 Feature set
+ * @retval negative errno from control transfer
+ */
+int usbh_req_set_hcfs_port_feature(struct usb_device *const hub, const uint8_t port,
+				   const uint8_t feature);
+
+/**
+ * @brief CLEAR_FEATURE on a hub downstream port.
+ *
+ * @param hub Hub device
+ * @param port 1-based port number
+ * @param feature Hub class port feature selector
+ *
+ * @retval 0 Feature cleared
+ * @retval negative errno from control transfer
+ */
+int usbh_req_clear_hcfs_port_feature(struct usb_device *const hub, const uint8_t port,
+				     const uint8_t feature);
+
+/**
+ * @brief CLEAR_FEATURE on the hub device.
+ *
+ * @param hub Hub device
+ * @param feature Hub class hub feature selector
+ *
+ * @retval 0 Feature cleared
+ * @retval negative errno from control transfer
+ */
+int usbh_req_clear_hcfs_hub_feature(struct usb_device *const hub, const uint8_t feature);
+
+/**
+ * @brief GET_DESCRIPTOR(HUB) helper.
+ *
+ * @param hub Hub device
+ * @param len Number of bytes to read
+ * @param desc Output buffer (variable-length hub descriptor)
+ *
+ * @retval 0 Descriptor read succeeded
+ * @retval negative errno from control transfer
+ */
+int usbh_req_desc_hub(struct usb_device *const hub, const uint16_t len, void *const desc);
+
+/**
+ * @brief Issue hub port reset and clear C_PORT_RESET.
+ *
+ * @param hub Hub device
+ * @param port 1-based port number
+ * @param reset_ms Milliseconds to wait after SET_FEATURE(PORT_RESET)
+ *
+ * @retval 0 Port reset completed
+ * @retval negative errno from control transfer
+ */
+int usbh_hub_port_reset(struct usb_device *const hub, const uint8_t port, const uint32_t reset_ms);
+
+#endif /* CONFIG_USBH_HUB */
+
 /**
  * @brief SET_FEATURE(PORT_POWER) on the root hub.
  *

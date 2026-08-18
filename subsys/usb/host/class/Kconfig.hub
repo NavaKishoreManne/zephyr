@@ -1,0 +1,36 @@
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+config USBH_HUB
+	bool "USB hub Chapter 11 request helpers"
+	default n
+	help
+	  Hub class control requests (port status, set/clear feature, hub
+	  descriptor) used by the hub host class driver and shell helpers.
+
+config USBH_HUB_CLASS
+	bool "USB hub host class driver"
+	depends on USBH_HUB
+	default y
+	help
+	  Register a USB host class instance for USB hub devices. Powers
+	  downstream ports, listens on the hub status interrupt endpoint, and
+	  enumerates newly connected devices.
+
+if USBH_HUB_CLASS
+
+config USBH_HUB_PORT_RESET_MS
+	int "Milliseconds to wait during hub port reset"
+	default 50
+	range 10 500
+	help
+	  Delay after SET_FEATURE(PORT_RESET) before polling for C_PORT_RESET.
+
+config USBH_HUB_MAX_PORTS
+	int "Maximum downstream ports supported by the hub class driver"
+	default 8
+	range 1 15
+	help
+	  Size of the hub status-change bitmap and port scan loops.
+
+endif # USBH_HUB_CLASS

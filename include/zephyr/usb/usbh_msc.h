@@ -147,6 +147,16 @@ static inline bool usbh_msc_subclass_scsi_supported(uint8_t subclass)
 int usbh_msc_find_bulk_interface(const struct usb_device *udev, struct usbh_msc_iface *out);
 
 /**
+ * @brief Return whether @a udev exposes an MSC bulk interface in its active config.
+ */
+static inline bool usbh_msc_device_has_storage(const struct usb_device *udev)
+{
+	struct usbh_msc_iface msc;
+
+	return usbh_msc_find_bulk_interface(udev, &msc) == 0;
+}
+
+/**
  * @brief Test whether a configuration descriptor blob contains a usable MSC bulk pair.
  *
  * Used during enumeration before SET_CONFIGURATION. Applies the same class/subclass

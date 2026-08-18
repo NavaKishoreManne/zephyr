@@ -37,8 +37,18 @@ After boot, plug a USB MSC stick and wait for::
 
 Then at the shell::
 
-  fs mount fat /USB:
+  msc mount USB
   fs ls /USB:
+
+With several MSC devices (e.g. on a hub), mount each volume independently::
+
+  msc mount USB
+  msc mount USB1
+  fs ls /USB:
+  fs ls /USB1:
+
+Use ``msc umount USB`` to drop one mount without affecting the other. The stock
+``fs mount fat`` command only supports one FAT mount at a time.
 
 MSC bringup runs from the sample ``main()`` after enumeration
 (``CONFIG_USBH_MSC_AUTO_BRINGUP=n`` in ``boards/versal_apu.conf``).

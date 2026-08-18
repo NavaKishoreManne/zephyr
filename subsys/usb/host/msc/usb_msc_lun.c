@@ -205,7 +205,10 @@ static int usb_msc_scsi_exec(const struct device *dev, struct scsi_xfer *xfer)
 		return -EINVAL;
 	}
 
-	lun = usb_msc_lun_find_uhc(dev, xfer->lun);
+	lun = usb_msc_lun_find_sdev(xfer->sdev);
+	if (lun == NULL) {
+		lun = usb_msc_lun_find_uhc(dev, xfer->lun);
+	}
 	if (lun == NULL) {
 		return -ENODEV;
 	}
@@ -368,13 +371,62 @@ int usb_msc_scsi_with_lun(const struct device *uhc, struct usb_device *udev,
 
 #if IS_ENABLED(CONFIG_USBH_MSC_DISK)
 
-static int usb_msc_disk_format_name(uint8_t lun, char *buf, size_t buflen)
+int usb_msc_disk_format_volume_name(unsigned int vol_index, char *buf, size_t buflen)
 {
-	if (lun == 0U) {
+	if (buf == NULL || buflen == 0U) {
+		return -EINVAL;
+	}
+
+	if (vol_index == 0U) {
 		return snprintk(buf, buflen, "%s", CONFIG_USBH_MSC_DISK_NAME);
 	}
 
-	return snprintk(buf, buflen, "%s%u", CONFIG_USBH_MSC_DISK_NAME, lun);
+	return snprintk(buf, buflen, "%s%u", CONFIG_USBH_MSC_DISK_NAME, vol_index);
+}
+
+static bool usb_msc_disk_name_in_use(const char *name)
+{
+	if (name == NULL) {
+		return false;
+	}
+
+	for (size_t i = 0U; i < ARRAY_SIZE(usb_msc_luns); i++) {
+		const struct usb_msc_lun *entry = &usb_msc_luns[i];
+
+		if (entry->state == USB_MSC_LUN_DISK &&
+		    strncmp(entry->disk_name, name, sizeof(entry->disk_name)) == 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static int usb_msc_disk_assign_volume_name(struct usb_device *udev, uint8_t lun_id, char *buf,
+					   size_t buflen)
+{
+	const struct usb_msc_lun *existing = usb_msc_lun_find(udev, lun_id);
+
+	if (existing != NULL && existing->state == USB_MSC_LUN_DISK &&
+	    existing->disk_name[0] != '\0') {
+		return snprintk(buf, buflen, "%s", existing->disk_name);
+	}
+
+	for (unsigned int vol = 0U; vol < CONFIG_USBH_MSC_LUN_SLOTS; vol++) {
+		char candidate[16];
+		int len;
+
+		len = usb_msc_disk_format_volume_name(vol, candidate, sizeof(candidate));
+		if (len < 0 || len >= (int)sizeof(candidate)) {
+			return -ENOSPC;
+		}
+
+		if (!usb_msc_disk_name_in_use(candidate)) {
+			return snprintk(buf, buflen, "%s", candidate);
+		}
+	}
+
+	return -ENOSPC;
 }
 
 static void usb_msc_disk_log_ready(const struct usb_msc_lun *lun, const char *disk_name)
@@ -555,7 +607,7 @@ int usb_msc_disk_attach_lun(const struct device *uhc, struct usb_device *udev,
 		}
 	}
 
-	name_len = usb_msc_disk_format_name(lun, disk_name, sizeof(disk_name));
+	name_len = usb_msc_disk_assign_volume_name(udev, lun, disk_name, sizeof(disk_name));
 	if (name_len < 0 || name_len >= (int)sizeof(disk_name)) {
 		if (entry->state != USB_MSC_LUN_DISK) {
 			usb_msc_lun_release(entry);
@@ -570,6 +622,22 @@ int usb_msc_disk_attach_lun0(const struct device *uhc, struct usb_device *udev,
 			     const struct usbh_msc_iface *msc)
 {
 	return usb_msc_disk_attach_lun(uhc, udev, msc, 0U);
+}
+
+int usb_msc_disk_get_volume_name(struct usb_device *udev, uint8_t lun, char *buf, size_t buflen)
+{
+	const struct usb_msc_lun *entry;
+
+	if (buf == NULL || buflen == 0U) {
+		return -EINVAL;
+	}
+
+	entry = usb_msc_lun_find(udev, lun);
+	if (entry == NULL || entry->state != USB_MSC_LUN_DISK) {
+		return -ENOENT;
+	}
+
+	return snprintk(buf, buflen, "%s", entry->disk_name);
 }
 
 #endif /* CONFIG_USBH_MSC_DISK */

@@ -96,16 +96,32 @@ void usb_msc_disk_device_removed(struct usb_device *udev);
 /**
  * @brief Attach one LUN as a disk_access volume (auto-generated name)
  *
- * LUN0 uses @kconfig:option:`CONFIG_USBH_MSC_DISK_NAME`; LUN>0 uses
- * ``<name><lun>`` (e.g. ``USB1``).
+ * Assigns the lowest unused volume name across all attached MSC devices:
+ * LUN0 on the first stick is @kconfig:option:`CONFIG_USBH_MSC_DISK_NAME` (e.g.
+ * ``USB``), the next MSC LUN on any port becomes ``USB1``, then ``USB2``, and
+ * so on (up to @kconfig:option:`CONFIG_USBH_MSC_LUN_SLOTS`).
  */
 int usb_msc_disk_attach_lun(const struct device *uhc, struct usb_device *udev,
 			    const struct usbh_msc_iface *msc, uint8_t lun);
 
 /**
- * @brief Attach LUN0 using Kconfig defaults (@c CONFIG_USBH_MSC_DISK_NAME)
+ * @brief Format a global MSC volume name by index (0 → ``USB``, 1 → ``USB1``, …)
  *
- * Used from @ref usbh_msc_storage_bringup when auto-attach is enabled.
+ * @return Length written, or negative errno
+ */
+int usb_msc_disk_format_volume_name(unsigned int vol_index, char *buf, size_t buflen);
+
+/**
+ * @brief Return the disk_access name for an attached @a udev + @a lun
+ *
+ * @return Length written, -ENOENT when not attached, other negative errno on error
+ */
+int usb_msc_disk_get_volume_name(struct usb_device *udev, uint8_t lun, char *buf, size_t buflen);
+
+/**
+ * @brief Attach LUN0 using the next free global volume name
+ *
+ * Same naming as @ref usb_msc_disk_attach_lun (``USB``, ``USB1``, …).
  */
 int usb_msc_disk_attach_lun0(const struct device *uhc, struct usb_device *udev,
 			     const struct usbh_msc_iface *msc);

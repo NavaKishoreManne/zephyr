@@ -25,6 +25,7 @@
 #include "xhci_hw.h"
 #include "xhci_dwc3_log.h"
 #include "xhci_ring.h"
+#include "xhci_slot.h"
 
 #define XHCI_TRB_64K_BOUND 0x10000U
 
@@ -96,12 +97,6 @@ static inline uint64_t xhci_dma_addr(const void *v)
 	return (uint64_t)k_mem_phys_addr((void *)(uintptr_t)v);
 }
 
-static inline struct xhci_ep_ctx *xhci_slot_output_ep_ctx(const struct uhc_dwc3_data *priv,
-							  unsigned int dci)
-{
-	return (struct xhci_ep_ctx *)(priv->dev_ctx + (size_t)dci * (size_t)priv->ctx_bytes);
-}
-
 static inline void xhci_flush_bulk_td(struct xhci_ring *ring, struct xhci_trb *t)
 {
 	dwc3_dma_flush_aligned(t, sizeof(*t));
@@ -137,44 +132,46 @@ int xhci_send_command_ex(struct uhc_dwc3_data *priv, uint32_t param_lo, uint32_t
 			 uint32_t status, uint32_t control, bool drain_evt_ring);
 int xhci_send_command(struct uhc_dwc3_data *priv, uint32_t param_lo, uint32_t param_hi,
 		      uint32_t status, uint32_t control);
-int xhci_cmd_configure_endpoint(struct uhc_dwc3_data *priv);
+int xhci_cmd_configure_endpoint(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot);
 uint8_t xhci_usb_ep_addr_to_dci(uint8_t ep_addr);
 struct usb_ep_descriptor *xhci_ep_desc_for_dci(struct usb_device *udev, uint8_t dci);
 uint32_t xhci_int_ep_info_field(const struct usb_ep_descriptor *epd, enum usb_device_speed speed);
 int xhci_dwc3_bulk_output_eps_steady(struct uhc_dwc3_data *priv, struct usb_device *udev);
 void xhci_dwc3_verify_post_configure(struct uhc_dwc3_data *priv, struct usb_device *udev,
-				     const uint8_t *dci_has_desc, unsigned int max_dci);
-int xhci_evaluate_context_copy_output(struct uhc_dwc3_data *priv, unsigned int max_dci,
-				      const uint8_t *dci_has_desc);
-void xhci_dwc3_reset_bandwidth_sw(struct uhc_dwc3_data *priv);
+				     struct xhci_dev_slot *slot, const uint8_t *dci_has_desc,
+				     unsigned int max_dci);
+int xhci_evaluate_context_copy_output(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				      unsigned int max_dci, const uint8_t *dci_has_desc);
+void xhci_dwc3_reset_bandwidth_sw(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot);
 int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *udev);
-int xhci_cmd_stop_ep_ring(struct uhc_dwc3_data *priv, uint32_t ep_index);
-int xhci_cmd_set_tr_dequeue_deq(struct uhc_dwc3_data *priv, uint32_t ep_index, uint64_t deq);
+int xhci_cmd_stop_ep_ring(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+			  uint32_t ep_index);
+int xhci_cmd_set_tr_dequeue_deq(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				uint32_t ep_index, uint64_t deq);
 int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_device *udev,
 				       bool force_drop_add);
 int xhci_enable_slot(struct uhc_dwc3_data *priv);
 int xhci_disable_slot_cmd(struct uhc_dwc3_data *priv, uint8_t sid);
-void xhci_reset_sw_transfer_rings(struct uhc_dwc3_data *priv);
-void xhci_teardown_active_slot(struct uhc_dwc3_data *priv);
 
 /* xhci_ep0.c */
 void xhci_flush_ep0_td(struct xhci_ring *ring, struct xhci_trb *setup, struct xhci_trb *data,
 		       struct xhci_trb *status);
-void xhci_copy_ep0_dequeue_into_input_ctx(struct uhc_dwc3_data *priv);
-void xhci_ep0_ring_sync_from_hw(struct uhc_dwc3_data *priv);
-void xhci_ep0_verify_mps_matches(struct uhc_dwc3_data *priv, uint16_t expect, const char *tag);
-bool xhci_ep0_ring_verify_dequeue_matches_sw(struct uhc_dwc3_data *priv);
+void xhci_copy_ep0_dequeue_into_input_ctx(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot);
+void xhci_ep0_ring_sync_from_hw(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot);
+void xhci_ep0_verify_mps_matches(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				 uint16_t expect, const char *tag);
+bool xhci_ep0_ring_verify_dequeue_matches_sw(struct uhc_dwc3_data *priv,
+					     struct xhci_dev_slot *slot);
 uint32_t ep0_td_size_packets_after_setup(uint16_t w_length, uint16_t mps0);
 int dwc3_xfer_sem_take_ep0(const struct device *dev, struct uhc_dwc3_data *priv,
-			   k_timeout_t timeout);
-int xhci_address_device_initial(struct uhc_dwc3_data *priv, uint8_t port, uint8_t speed);
-int xhci_address_device_set_address_bsr0(struct uhc_dwc3_data *priv);
-int xhci_evaluate_ep0_mps(struct uhc_dwc3_data *priv, uint16_t mps);
+			   struct xhci_dev_slot *slot, k_timeout_t timeout);
+int xhci_address_device_set_address_bsr0(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot);
+int xhci_evaluate_ep0_mps(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot, uint16_t mps);
 
 /* xhci_event.c */
 uint32_t xhci_in_bytes_from_event(uint32_t buf_len, uint32_t lenfield, uint32_t cc);
-void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, uint8_t dci, int br, uint32_t cc,
-			    uint32_t lenfield);
+void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot, uint8_t dci,
+			    int br, uint32_t cc, uint32_t lenfield);
 void xhci_dbg_log_normal_trb(const struct xhci_trb *t, const char *ctx);
 enum uhc_event_type xhci_port_speed_to_connect_event(uint8_t xhci_speed);
 void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt);
@@ -184,7 +181,7 @@ void xhci_process_events(struct uhc_dwc3_data *priv);
 void xhci_event_work_handler(struct k_work *work);
 void uhc_dwc3_isr(const struct device *dev);
 
-int xhci_cancel_ep_xfer(struct uhc_dwc3_data *priv, uint8_t dci, struct uhc_transfer *xfer,
-			int err);
+int xhci_cancel_ep_xfer(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot, uint8_t dci,
+			struct uhc_transfer *xfer, int err);
 
 #endif /* ZEPHYR_USB_XHCI_DWC3_INTERNAL_H */

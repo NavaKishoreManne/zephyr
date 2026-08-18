@@ -42,7 +42,7 @@ Core options in ``subsys/usb/host/Kconfig``:
 * :kconfig:option:`CONFIG_USBH_MSC_AUTO_BRINGUP` — run storage bringup from class
   probe (disable when the application drives bringup after enumeration)
 * :kconfig:option:`CONFIG_USBH_MSC_DISK` — register probed LUNs as ``scsi_disk``
-  volumes
+  volumes (global names: ``USB``, ``USB1``, … across all attached devices)
 * :kconfig:option:`CONFIG_USBH_MSC_STRICT_PROBE` — apply MSC specification probe
   rules (device class 0, BBB protocol, bulk endpoints, etc.)
 
@@ -63,6 +63,12 @@ optionally attach ``scsi_disk``. Override weak notification hooks when needed:
 On disconnect, unmount FatFs (or call :c:func:`usbh_msc_storage_teardown`) from
 this hook. MSC class removal and disk detach run after the notify callback
 returns.
+
+When several MSC devices are attached (for example via a USB hub), each volume
+gets the next free name from :kconfig:option:`CONFIG_USBH_MSC_DISK_NAME` and
+suffixes. Increase :kconfig:option:`CONFIG_USBH_MSC_LUN_SLOTS`,
+:kconfig:option:`CONFIG_USBH_USB_DEVICE_MAX`, and FatFs custom mount point
+count when using more than one stick concurrently.
 
 Sample
 ******

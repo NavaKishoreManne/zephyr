@@ -120,6 +120,12 @@ static void usbh_class_probe_function(struct usb_device *const udev,
 			continue;
 		}
 
+		if (ret != 0) {
+			LOG_WRN("Class %s probe failed for interface %u (%d)",
+				c_data->name, iface, ret);
+			continue;
+		}
+
 		LOG_INF("Class '%s' matches interface %u", c_data->name, iface);
 		c_node->state = USBH_CLASS_STATE_BOUND;
 		c_data->udev = udev;

@@ -47,61 +47,28 @@ static int usbh_event_carrier(const struct device *dev, const struct uhc_event *
 	return err;
 }
 
-static void usbh_root_publish(struct usbh_context *const ctx, struct usb_device *udev)
-{
-	usbh_host_lock(ctx);
-	ctx->root = udev;
-	usbh_host_unlock(ctx);
-}
-
-static struct usb_device *usbh_root_take(struct usbh_context *const ctx)
-{
-	struct usb_device *udev;
-
-	usbh_host_lock(ctx);
-	udev = ctx->root;
-	ctx->root = NULL;
-	usbh_host_unlock(ctx);
-
-	return udev;
-}
-
-static void usbh_device_detach(struct usbh_context *const ctx)
-{
-	struct usb_device *udev = usbh_root_take(ctx);
-
-	if (udev == NULL) {
-		return;
-	}
-
-	barrier_dmem_fence_full();
-	usbh_device_removed_notify(udev);
-	usbh_class_remove_all(udev);
-	usbh_device_free(udev);
-}
+/** Root-tier HCD connect: default port 1 until uhc_event carries a port id. */
+#define USBH_ROOT_HUB_PORT 1U
 
 static void dev_connected_handler(struct usbh_context *const ctx,
 				  const struct uhc_event *const event)
 {
 	const char *const tname = k_thread_name_get(k_current_get());
-	struct usb_device *udev;
 	struct usb_device *prev;
+	struct usb_device *udev;
 	int init_err;
 
 	LOG_DBG("trace: dev_connected thread=%s prio=%d speed_evt=%d", tname != NULL ? tname : "?",
 		k_thread_priority_get(k_current_get()), (int)event->type);
 
-	prev = usbh_root_take(ctx);
+	prev = usbh_device_find_by_port(ctx, NULL, USBH_ROOT_HUB_PORT);
 	if (prev != NULL) {
-		LOG_WRN("Replacing connected USB device");
-		barrier_dmem_fence_full();
-		usbh_device_removed_notify(prev);
-		usbh_class_remove_all(prev);
-		usbh_device_free(prev);
+		LOG_WRN("Replacing device on root port %u", USBH_ROOT_HUB_PORT);
+		usbh_device_disconnect(prev);
 		uhc_free_dev(ctx->dev);
 	}
 
-	udev = usbh_device_alloc(ctx);
+	udev = usbh_device_alloc_port(ctx, NULL, USBH_ROOT_HUB_PORT);
 	if (udev == NULL) {
 		LOG_ERR("Failed allocate new device");
 		uhc_free_dev(ctx->dev);
@@ -120,28 +87,31 @@ static void dev_connected_handler(struct usbh_context *const ctx,
 		udev->speed = USB_SPEED_SPEED_FS;
 	}
 
-	usbh_root_publish(ctx, udev);
-
 	init_err = usbh_device_init(udev);
-	LOG_DBG("trace: usbh_device_init done err=%d thread=%s root=%p", init_err,
-		tname != NULL ? tname : "?", (void *)udev);
+	LOG_DBG("trace: usbh_device_init done err=%d thread=%s udev=%p depth=%u port=%u", init_err,
+		tname != NULL ? tname : "?", (void *)udev, udev->depth, udev->hub_port);
 
 	if (init_err != 0) {
-		struct usb_device *failed = usbh_root_take(ctx);
-
-		LOG_ERR("Failed to reset new USB device");
-		if (failed != NULL) {
-			usbh_device_free(failed);
-		}
+		LOG_ERR("Failed to enumerate new USB device");
+		usbh_device_disconnect(udev);
 		uhc_free_dev(ctx->dev);
 	}
 }
 
 static void dev_removed_handler(struct usbh_context *const ctx)
 {
-	if (ctx->root != NULL) {
-		usbh_device_detach(ctx);
-		LOG_DBG("Device removed");
+	struct usb_device *udev, *tmp;
+	bool removed = false;
+
+	SYS_DLIST_FOR_EACH_CONTAINER_SAFE(&ctx->udevs, udev, tmp, node) {
+		if (udev->parent == NULL) {
+			usbh_device_disconnect(udev);
+			removed = true;
+		}
+	}
+
+	if (removed) {
+		LOG_DBG("Root-tier device removed");
 	} else {
 		LOG_DBG("Spurious device removed event");
 	}

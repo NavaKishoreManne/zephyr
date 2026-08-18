@@ -36,7 +36,8 @@ K_MEM_SLAB_DEFINE_STATIC(usb_device_slab, sizeof(struct usb_device), CONFIG_USBH
 
 K_HEAP_DEFINE(usb_device_heap, CONFIG_USBH_USB_DEVICE_HEAP);
 
-struct usb_device *usbh_device_alloc(struct usbh_context *const uhs_ctx)
+struct usb_device *usbh_device_alloc_port(struct usbh_context *const uhs_ctx,
+					  struct usb_device *parent, uint8_t hub_port)
 {
 	struct usb_device *udev;
 
@@ -47,10 +48,49 @@ struct usb_device *usbh_device_alloc(struct usbh_context *const uhs_ctx)
 
 	memset(udev, 0, sizeof(struct usb_device));
 	udev->ctx = uhs_ctx;
+	udev->parent = parent;
+	udev->hub_port = hub_port;
+	udev->depth = (parent != NULL) ? (uint8_t)(parent->depth + 1U) : 0U;
 	sys_dlist_append(&uhs_ctx->udevs, &udev->node);
 	k_mutex_init(&udev->mutex);
 
 	return udev;
+}
+
+struct usb_device *usbh_device_alloc(struct usbh_context *const uhs_ctx)
+{
+	/* Root-tier default: port 1 (USB hub numbering, Linux portnum). */
+	return usbh_device_alloc_port(uhs_ctx, NULL, 1U);
+}
+
+void usbh_device_disconnect(struct usb_device *udev)
+{
+	if (udev == NULL) {
+		return;
+	}
+
+	barrier_dmem_fence_full();
+	usbh_device_removed_notify(udev);
+	usbh_class_remove_all(udev);
+	usbh_device_free(udev);
+}
+
+struct usb_device *usbh_device_find_by_port(struct usbh_context *const uhs_ctx,
+					    struct usb_device *parent, uint8_t hub_port)
+{
+	struct usb_device *udev;
+
+	if (uhs_ctx == NULL) {
+		return NULL;
+	}
+
+	SYS_DLIST_FOR_EACH_CONTAINER(&uhs_ctx->udevs, udev, node) {
+		if (udev->parent == parent && udev->hub_port == hub_port) {
+			return udev;
+		}
+	}
+
+	return NULL;
 }
 
 void usbh_device_free(struct usb_device *const udev)
@@ -59,6 +99,9 @@ void usbh_device_free(struct usb_device *const udev)
 
 	if (udev->addr != 0U) {
 		sys_bitarray_clear_bit(uhs_ctx->addr_ba, udev->addr);
+	}
+	if (udev->slot_id != 0U) {
+		uhc_release_device(uhs_ctx->dev, udev);
 	}
 	sys_dlist_remove(&udev->node);
 	if (udev->cfg_desc != NULL) {
@@ -73,19 +116,17 @@ struct usb_device *usbh_device_get_any(struct usbh_context *const uhs_ctx)
 	sys_dnode_t *node = sys_dlist_peek_head(&uhs_ctx->udevs);
 	struct usb_device *udev;
 
-	/*
-	 * If udevs was never sys_dlist_init()'d (head stays NULL), peek_head is NULL
-	 * even after usbh_device_alloc() — SYS_DLIST_STATIC_INIT in USBH_CONTROLLER_DEFINE
-	 * and usbh_init() normally prevent that. Single-root: ctx->root still points at
-	 * the connected device.
-	 */
-	if (node == NULL && uhs_ctx->root != NULL) {
-		return uhs_ctx->root;
+	SYS_DLIST_FOR_EACH_CONTAINER(&uhs_ctx->udevs, udev, node) {
+		if (udev->state == USB_STATE_CONFIGURED) {
+			return udev;
+		}
 	}
 
-	udev = SYS_DLIST_CONTAINER(node, udev, node);
+	if (node == NULL) {
+		return NULL;
+	}
 
-	return udev;
+	return SYS_DLIST_CONTAINER(node, udev, node);
 }
 
 struct usb_device *usbh_device_get(struct usbh_context *const uhs_ctx, const uint8_t addr)
@@ -247,7 +288,8 @@ static void usbh_enumeration_delay_ms(uint32_t ms)
 bool usbh_device_still_connected(const struct usb_device *udev)
 {
 	struct usbh_context *ctx;
-	bool connected;
+	struct usb_device *iter;
+	bool registered = false;
 
 	if (udev == NULL) {
 		return false;
@@ -259,10 +301,15 @@ bool usbh_device_still_connected(const struct usb_device *udev)
 	}
 
 	usbh_host_lock(ctx);
-	connected = (ctx->root == udev && udev->state == USB_STATE_CONFIGURED && udev->addr != 0U);
+	SYS_DLIST_FOR_EACH_CONTAINER(&ctx->udevs, iter, node) {
+		if (iter == udev) {
+			registered = true;
+			break;
+		}
+	}
 	usbh_host_unlock(ctx);
 
-	return connected;
+	return registered && udev->state == USB_STATE_CONFIGURED && udev->addr != 0U;
 }
 
 static int usbh_assign_device_address(struct usb_device *const udev, uint8_t *const addr_out)
@@ -837,13 +884,29 @@ int usbh_device_init(struct usb_device *const udev)
 		return err;
 	}
 
-	/* FIXME: The port to which the device is connected should be reset. */
-	LOG_DBG("usbh: about to uhc_bus_reset()");
-	err = uhc_bus_reset(uhs_ctx->dev);
-	if (err) {
-		LOG_ERR("Failed to signal bus reset");
-		k_mutex_unlock(&udev->mutex);
-		return err;
+	/* Root-tier: full bus reset. Hub children: hub class resets the port. */
+	if (udev->parent == NULL) {
+		err = uhc_prepare_enum(uhs_ctx->dev, udev);
+		if (err != 0) {
+			LOG_ERR("Failed to prepare enumeration");
+			k_mutex_unlock(&udev->mutex);
+			return err;
+		}
+		LOG_DBG("usbh: about to uhc_bus_reset()");
+		err = uhc_bus_reset(uhs_ctx->dev);
+		if (err) {
+			LOG_ERR("Failed to signal bus reset");
+			k_mutex_unlock(&udev->mutex);
+			return err;
+		}
+	} else {
+		LOG_DBG("usbh: hub child on port %u (skip uhc_bus_reset)", udev->hub_port);
+		err = uhc_attach_device(uhs_ctx->dev, udev);
+		if (err != 0) {
+			LOG_ERR("Failed to attach hub child device");
+			k_mutex_unlock(&udev->mutex);
+			return err;
+		}
 	}
 
 #if IS_ENABLED(CONFIG_USBH_USB2_ENUM_SCHEME)
@@ -891,6 +954,11 @@ int usbh_device_init(struct usb_device *const udev)
 
 #if IS_ENABLED(CONFIG_USBH_USB2_ENUM_SECOND_RESET)
 		LOG_DBG("usbh: second uhc_bus_reset()");
+		err = uhc_prepare_enum(uhs_ctx->dev, udev);
+		if (err != 0) {
+			LOG_ERR("Failed to prepare second bus reset");
+			goto error;
+		}
 		err = uhc_bus_reset(uhs_ctx->dev);
 		if (err) {
 			LOG_ERR("Second bus reset failed");

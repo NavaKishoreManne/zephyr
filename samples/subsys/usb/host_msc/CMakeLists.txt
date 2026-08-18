@@ -16,6 +16,12 @@ if(CONFIG_USB_HOST_MSC_SAMPLE_FAT_FILE_DEMO)
   )
 endif()
 
+if(CONFIG_USB_HOST_MSC_SAMPLE_FS_SHELL)
+  target_sources(app PRIVATE
+    src/msc_multi_mount.c
+  )
+endif()
+
 if(CONFIG_USB_HOST_MSC_SAMPLE_LARGE_FILE_WRITE)
   target_sources(app PRIVATE src/msc_large_file_write.c)
 endif()

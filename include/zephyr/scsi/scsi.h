@@ -60,6 +60,8 @@ struct scsi_xfer {
 	uint32_t timeout_ms;
 	/** Target logical unit number */
 	uint8_t lun;
+	/** Owning SCSI device (set by @ref scsi_exec for transport routing) */
+	struct scsi_device *sdev;
 	/** SCSI status byte returned by the device */
 	uint8_t status;
 	/** Sense data on CHECK CONDITION */

@@ -29,10 +29,10 @@
 typedef int (*usbh_udev_cb_t)(struct usb_device *const udev, struct uhc_transfer *const xfer);
 
 /**
- * @brief Return the first connected USB device in @a ctx.
+ * @brief Return a connected USB device in @a ctx.
  *
- * For a single-point connection without hub support, this is the device
- * attached directly to the host controller.
+ * Prefers a device in @ref USB_STATE_CONFIGURED; otherwise returns the first
+ * entry in the host device list.
  *
  * @param ctx USB host context
  *
@@ -53,11 +53,45 @@ struct usb_device *usbh_device_get(struct usbh_context *const uhs_ctx, const uin
 /**
  * @brief Allocate a USB device object from the host context pool.
  *
+ * Equivalent to @ref usbh_device_alloc_port with @a parent @c NULL and
+ * @a hub_port @c 1 (direct root-port attachment).
+ *
  * @param uhs_ctx USB host context
  *
  * @return New device object, or NULL when the pool is exhausted
  */
 struct usb_device *usbh_device_alloc(struct usbh_context *const uhs_ctx);
+
+/**
+ * @brief Allocate a USB device with hub topology (Linux @c parent / @c portnum).
+ *
+ * @param uhs_ctx USB host context
+ * @param parent Parent hub, or NULL for a root-tier device
+ * @param hub_port 1-based port on @a parent or the root hub
+ *
+ * @return New device object, or NULL when the pool is exhausted
+ */
+struct usb_device *usbh_device_alloc_port(struct usbh_context *const uhs_ctx,
+					    struct usb_device *parent, uint8_t hub_port);
+
+/**
+ * @brief Look up a device by parent hub and port number.
+ *
+ * @param uhs_ctx USB host context
+ * @param parent Parent hub, or NULL for root tier
+ * @param hub_port 1-based port number
+ *
+ * @return Matching device, or NULL
+ */
+struct usb_device *usbh_device_find_by_port(struct usbh_context *const uhs_ctx,
+					    struct usb_device *parent, uint8_t hub_port);
+
+/**
+ * @brief Tear down a device (notify, class remove, free).
+ *
+ * @param udev Device to disconnect
+ */
+void usbh_device_disconnect(struct usb_device *udev);
 
 /**
  * @brief Release a USB device object back to the host context pool.

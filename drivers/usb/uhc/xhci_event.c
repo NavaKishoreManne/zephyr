@@ -32,6 +32,7 @@
 #include "xhci_bulk.h"
 #include "xhci_dwc3_bulk.h"
 #include "xhci_dma.h"
+#include "xhci_slot.h"
 
 LOG_MODULE_DECLARE(uhc_dwc3, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
@@ -119,13 +120,13 @@ static void xhci_dbg_log_cmd_completion_evt(const struct xhci_trb *evt)
 	ARG_UNUSED(evt);
 #endif
 }
-void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, uint8_t dci, int br, uint32_t cc,
-			    uint32_t lenfield)
+void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot, uint8_t dci,
+			    int br, uint32_t cc, uint32_t lenfield)
 {
 	const struct device *dev = priv->dev;
-	struct uhc_transfer *xfer = priv->bulk_active_xfer[dci];
-	struct uhc_dwc3_bulk_urb *urb = &priv->bulk_urb[dci];
-	struct xhci_ring *ring = &priv->ep_bulk_rings[dci];
+	struct uhc_transfer *xfer = slot->bulk_active_xfer[dci];
+	struct uhc_dwc3_bulk_urb *urb = &slot->bulk_urb[dci];
+	struct xhci_ring *ring = &slot->ep_bulk_rings[dci];
 	const bool dir_in = urb->dir_in;
 	const uint32_t req_len = urb->req_len;
 	const uint32_t td_prog_len = (urb->trb_dma_len != 0U) ? urb->trb_dma_len : req_len;
@@ -134,7 +135,7 @@ void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, uint8_t dci, int br, uin
 		return;
 	}
 
-	priv->bulk_active_xfer[dci] = NULL;
+	slot->bulk_active_xfer[dci] = NULL;
 	xfer->err = br;
 
 	if (dir_in && br == 0 && xfer->buf != NULL) {
@@ -184,7 +185,7 @@ void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, uint8_t dci, int br, uin
 		}
 	}
 
-	xhci_dwc3_bulk_td_giveback(priv, dci, dir_in, xfer->err, req_len);
+	xhci_dwc3_bulk_td_giveback(priv, slot, dci, dir_in, xfer->err, req_len);
 
 	if (!sys_slist_is_empty(&ring->td_list)) {
 		sys_slist_find_and_remove(&ring->td_list, &urb->td.node);
@@ -345,15 +346,18 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 	case XHCI_TRB_TRANSFER_EVENT: {
 		uint32_t cc = XHCI_TRB_GET_COMP_CODE(evt->status);
 		uint32_t ep_id_evt;
+		uint8_t sid = XHCI_TRB_TO_SLOT_ID(evt->control);
+		struct xhci_dev_slot *slot = xhci_slot_get(priv, sid);
 
 		xhci_dbg_log_xfer_event_trb(evt);
 
-		/*
-		 * Stop Endpoint reports TRANSFER_EVENT with COMP_STOPPED (26) or
-		 * COMP_STOPPED_LENGTH_INVALID (27) on the TRB at the dequeue pointer —
-		 * not the IOC completion for the doorbelled xfer. Ignore both (xHCI
-		 * uses 26 for STOPPED; this file used 27 only — DWC3 reports 26).
-		 */
+		if (slot == NULL || !slot->active) {
+			LOG_WRN("xfer event for inactive/missing slot %u (cc=%u ep_id=%u)",
+				(unsigned int)sid, (unsigned int)cc,
+				(unsigned int)XHCI_TRB_TO_EP_ID(evt->control));
+			break;
+		}
+
 		if (cc == XHCI_COMP_STOPPED || cc == XHCI_COMP_STOPPED_LENGTH_INVALID) {
 			UHC_DWC3_DBG("xfer event COMP_STOPPED-like (cc=%u; Stop EP side-effect; "
 				     "no xfer completion) p_lo=0x%08x",
@@ -363,54 +367,49 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 
 		ep_id_evt = XHCI_TRB_TO_EP_ID(evt->control);
 
-		if (ep_id_evt == 0U || ep_id_evt >= ARRAY_SIZE(priv->bulk_active_xfer)) {
+		if (ep_id_evt == 0U || ep_id_evt >= ARRAY_SIZE(slot->bulk_active_xfer)) {
 			LOG_WRN("xfer event bad ep_id=%u (slot=%u cc=%u)", (unsigned int)ep_id_evt,
-				(unsigned int)XHCI_TRB_TO_SLOT_ID(evt->control), (unsigned int)cc);
+				(unsigned int)sid, (unsigned int)cc);
 			break;
 		}
 
 		if (ep_id_evt == (uint32_t)XHCI_DCI_DEFAULT_CONTROL) {
-			priv->xfer_comp_code = cc;
+			slot->xfer_comp_code = cc;
 			if (cc == XHCI_COMP_SUCCESS || cc == XHCI_COMP_SHORT_PACKET) {
-				priv->xfer_result = 0;
+				slot->xfer_result = 0;
 			} else if (cc == XHCI_COMP_STALL_ERROR) {
-				priv->xfer_result = -EPIPE;
+				slot->xfer_result = -EPIPE;
 			} else {
-				priv->xfer_result = -EIO;
+				slot->xfer_result = -EIO;
 			}
-			priv->xfer_length = evt->status & 0xffffffU;
+			slot->xfer_length = evt->status & 0xffffffU;
 			if (cc != XHCI_COMP_SUCCESS && cc != XHCI_COMP_SHORT_PACKET) {
 				UHC_DWC3_DBG(
 					"xfer TRB FAIL raw status=0x%08x p_lo=0x%08x p_hi=0x%08x "
 					"ctl=0x%08x slot=%u ep_id=%u",
 					evt->status, evt->param_lo, evt->param_hi, evt->control,
-					(unsigned int)XHCI_TRB_TO_SLOT_ID(evt->control),
-					(unsigned int)XHCI_TRB_TO_EP_ID(evt->control));
+					(unsigned int)sid, (unsigned int)ep_id_evt);
 			} else {
 				UHC_DWC3_DBG(
 					"xHCI: xfer TRB raw status=0x%08x p_lo=0x%08x ctl=0x%08x",
 					evt->status, evt->param_lo, evt->control);
 			}
 			UHC_DWC3_DBG("xHCI: event TRB xfer EP0 COMP=%u lenfield=%u", cc,
-				     priv->xfer_length);
-			if (priv->xfer_result != 0) {
+				     slot->xfer_length);
+			if (slot->xfer_result != 0) {
 				LOG_ERR("xHCI: EP0 transfer failed COMP=%u residual=%u", cc,
-					priv->xfer_length);
+					slot->xfer_length);
 			}
-			k_sem_give(&priv->xfer_sem);
+			k_sem_give(&slot->xfer_sem);
 		} else {
 			int br;
 			uint64_t evt_trb_ptr =
 				(uint64_t)evt->param_lo | ((uint64_t)evt->param_hi << 32);
-			uint64_t expected_trb = priv->bulk_expect_ioc_trb_phys[ep_id_evt];
+			uint64_t expected_trb = slot->bulk_expect_ioc_trb_phys[ep_id_evt];
 			const bool ptr_mismatch =
 				(expected_trb != 0ULL && evt_trb_ptr != expected_trb);
 
-			/*
-			 * Stale transfer events: Versal posts duplicate COMP=4 for the same
-			 * TRB during Reset-EP drain; ignore after giveback cleared active xfer.
-			 */
-			if (priv->bulk_active_xfer[ep_id_evt] == NULL) {
+			if (slot->bulk_active_xfer[ep_id_evt] == NULL) {
 				UHC_DWC3_DBG("bulk DCI%u ignore stale xfer evt "
 					     "cc=%u p=0x%016llx (no active urb)",
 					     (unsigned int)ep_id_evt, (unsigned int)cc,
@@ -418,8 +417,8 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 				break;
 			}
 
-			if (!xhci_bulk_event_belongs_to_td(&priv->ep_bulk_rings[ep_id_evt],
-							   &priv->bulk_urb[ep_id_evt].td,
+			if (!xhci_bulk_event_belongs_to_td(&slot->ep_bulk_rings[ep_id_evt],
+							   &slot->bulk_urb[ep_id_evt].td,
 							   evt_trb_ptr)) {
 				UHC_DWC3_DBG("bulk DCI%u ignore xfer evt "
 					     "cc=%u p=0x%016llx (not in current TD)",
@@ -428,27 +427,9 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 				break;
 			}
 
-			priv->bulk_xfer_comp_code[ep_id_evt] = cc;
+			slot->bulk_xfer_comp_code[ep_id_evt] = cc;
 
-			/*
-			 * Chained bulk IN with ISP on interior Normal TRBs: DWC3 posts Transfer
-			 * Events for those TRBs (often COMP_SHORT_PACKET) before the IOC TRB.
-			 * Signaling completion here clears IOC correlation and wakes the waiter
-			 * early, leaving the TD half-finished and later CSW IN timing out.
-			 *
-			 * Ignore SUCCESS/SHORT on a TRB that is not the doorbelled IOC TRB **only
-			 * when this TD has multiple Normal TRBs** (bulk_td_trb_count > 1).
-			 *
-			 * Single-TRB TDs (typical BOT CSW IN): the packet is a short transfer vs
-			 * MPS, so completion is often COMP_SHORT_PACKET; integrated DWC3+xHCI
-			 * sometimes reports Param != IOC TRB physical address. Dropping those
-			 * events leaves bulk completion stuck until timeout (-116) — especially
-			 * after a preceding multi-TRB READ10 DATA phase.
-			 *
-			 * Transaction errors, STALL, etc. still complete (pointer may be the
-			 * failing TRB, not the IOC TRB).
-			 */
-			if (xhci_bulk_event_is_interior(&priv->bulk_urb[ep_id_evt].td, evt_trb_ptr,
+			if (xhci_bulk_event_is_interior(&slot->bulk_urb[ep_id_evt].td, evt_trb_ptr,
 							cc, expected_trb)) {
 				UHC_DWC3_DBG("bulk DCI=%u ignore interior xfer evt cc=%u "
 					     "p=0x%016llx want_IOC=0x%016llx",
@@ -458,37 +439,13 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 				break;
 			}
 
-			/*
-			 * IOC TRB correlation: on COMP_SUCCESS the pointer should match the TRB
-			 * that had IOC. On COMP_USB_TRANSACTION_ERROR etc., xHCI often reports
-			 * the TRB that failed (not the IOC TRB) — do not treat that as mismatch.
-			 */
 			if (cc == XHCI_COMP_SUCCESS) {
 				if (ptr_mismatch) {
-					if (priv->bulk_td_trb_count[ep_id_evt] <= 1U) {
-						/* Single-TRB TD (or unset): tolerate Param mismatch
-						 * vs IOC addr */
-						br = 0;
-					} else {
-						/*
-						 * Chained bulk IN: DWC3+xHCI may report Param that
-						 * does not match xhci_dma_addr(last_trb); IOC
-						 * retire uses bulk_expect_ioc_trb_phys.
-						 */
-						br = 0;
-					}
+					br = 0;
 				} else {
 					br = 0;
 				}
 			} else if (cc == XHCI_COMP_SHORT_PACKET) {
-				/*
-				 * IOC TRB only: interior SHORT_PACKET matched ptr_mismatch above
-				 * and was skipped (xHCI treats interim SP like SUCCESS). Any
-				 * SHORT_PACKET reaching here is the IOC completion for this TD —
-				 * admit success. Short bulk IN (got < TD length) is normal for SCSI
-				 * variable-length DATA-IN (e.g. MODE SENSE); the MSC host uses CSW
-				 * residue, not exact URB length.
-				 */
 				br = 0;
 			} else if (cc == XHCI_COMP_STALL_ERROR) {
 				br = -EPIPE;
@@ -498,10 +455,10 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 				br = -EIO;
 			}
 
-			priv->bulk_expect_ioc_trb_phys[ep_id_evt] = 0ULL;
-			priv->bulk_td_trb_count[ep_id_evt] = 0U;
-			priv->bulk_xfer_result[ep_id_evt] = br;
-			priv->bulk_xfer_length[ep_id_evt] = evt->status & 0xffffffU;
+			slot->bulk_expect_ioc_trb_phys[ep_id_evt] = 0ULL;
+			slot->bulk_td_trb_count[ep_id_evt] = 0U;
+			slot->bulk_xfer_result[ep_id_evt] = br;
+			slot->bulk_xfer_length[ep_id_evt] = evt->status & 0xffffffU;
 			if (br == 0) {
 				UHC_DWC3_DBG(
 					"xHCI: bulk xfer TRB DCI=%u raw status=0x%08x p_lo=0x%08x "
@@ -509,12 +466,6 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 					(unsigned int)ep_id_evt, evt->status, evt->param_lo,
 					(unsigned int)cc);
 			} else if (cc == XHCI_COMP_STALL_ERROR) {
-				/*
-				 * STALL is a valid protocol response (e.g. gadget ends DATA short
-				 * then STALLs the STATUS read); host clears ENDPOINT_HALT and
-				 * retries (USB 2.0 §8.5.4 / BOT). Not a controller fault — avoid
-				 * LOG_ERR noise.
-				 */
 				UHC_DWC3_DBG("bulk xfer STALL DCI=%u raw status=0x%08x p_lo=0x%08x "
 					     "ctl=0x%08x",
 					     (unsigned int)ep_id_evt, evt->status, evt->param_lo,
@@ -527,7 +478,7 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 			}
 			UHC_DWC3_DBG("xHCI: event TRB bulk DCI=%u COMP=%u lenfield=%u",
 				     (unsigned int)ep_id_evt, cc,
-				     priv->bulk_xfer_length[ep_id_evt]);
+				     slot->bulk_xfer_length[ep_id_evt]);
 			if (br != 0) {
 				if (cc == XHCI_COMP_STALL_ERROR) {
 					LOG_WRN("xHCI: bulk endpoint STALL (COMP=%u STALL_ERROR) "
@@ -535,15 +486,15 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 						"residual=%u — protocol STALL; host "
 						"CLEAR_FEATURE(ENDPOINT_HALT)",
 						(unsigned int)cc, (unsigned int)ep_id_evt,
-						priv->bulk_xfer_length[ep_id_evt]);
+						slot->bulk_xfer_length[ep_id_evt]);
 				} else {
 					LOG_ERR("xHCI: bulk transfer failed DCI=%u COMP=%u "
 						"residual=%u",
 						(unsigned int)ep_id_evt, cc,
-						priv->bulk_xfer_length[ep_id_evt]);
+						slot->bulk_xfer_length[ep_id_evt]);
 				}
 			}
-			xhci_bulk_giveback_urb(priv, (uint8_t)ep_id_evt, br, cc,
+			xhci_bulk_giveback_urb(priv, slot, (uint8_t)ep_id_evt, br, cc,
 					       evt->status & 0xffffffU);
 		}
 		break;
@@ -593,7 +544,6 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 					}
 				} else {
 					priv->root_connect_submitted = false;
-					priv->steady_after_configure_ep = false;
 					LOG_INF("xHCI: device disconnected");
 					uhc_submit_event(priv->dev, UHC_EVT_DEV_REMOVED, 0);
 				}

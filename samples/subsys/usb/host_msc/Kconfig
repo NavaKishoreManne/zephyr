@@ -34,10 +34,15 @@ config USB_HOST_MSC_SAMPLE_FS_SHELL
 	select FILE_SYSTEM_SHELL
 	select USBH_SHELL
 	help
-	  Typical sequence:
-	    fs mount fat /USB:
+	  Typical sequence (one stick):
+	    msc mount USB
+	    msc write /USB:/hello.txt hello world
 	    fs ls /USB:
-	    fs write -s -p /USB:/hello.txt hello
+	    fs cat /USB:/hello.txt
+
+	  With several MSC devices use ``msc mount`` for each volume (``USB``,
+	  ``USB1``, …). Use ``msc write`` for plain text; ``fs write`` expects
+	  hex bytes only.
 
 config USB_HOST_MSC_SAMPLE_TIMER_SELFTEST
 	bool "Run k_timer/k_poll self-test at boot"

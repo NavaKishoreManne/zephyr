@@ -212,6 +212,7 @@ int scsi_exec(struct scsi_device *sdev, struct scsi_xfer *xfer)
 	}
 
 	xfer->lun = sdev->lun;
+	xfer->sdev = sdev;
 	xfer->status = 0U;
 	xfer->transport_error = 0;
 
@@ -494,15 +495,37 @@ int scsi_start_stop_unit(struct scsi_device *sdev, bool start)
 
 int scsi_synchronize_cache_10(struct scsi_device *sdev)
 {
-	struct scsi_xfer xfer = {0};
 	int ret;
+	int last_ret = -EIO;
 
-	ret = scsi_cmd_synchronize_cache_10(&xfer);
-	if (ret != 0) {
-		return ret;
+	if (sdev == NULL) {
+		return -EINVAL;
 	}
 
-	return scsi_exec_simple(sdev, &xfer);
+	for (int i = 0; i < CONFIG_SCSI_SYNC_CACHE_RETRY_COUNT; i++) {
+		struct scsi_xfer xfer = {0};
+
+		ret = scsi_cmd_synchronize_cache_10(&xfer);
+		if (ret != 0) {
+			return ret;
+		}
+
+		last_ret = scsi_exec_simple(sdev, &xfer);
+		if (last_ret == 0) {
+			return 0;
+		}
+
+		if (last_ret != -EIO && last_ret != -EAGAIN) {
+			return last_ret;
+		}
+
+		if (i + 1 < CONFIG_SCSI_SYNC_CACHE_RETRY_COUNT) {
+			(void)scsi_test_unit_ready(sdev);
+			k_msleep(CONFIG_SCSI_SYNC_CACHE_RETRY_DELAY_MS);
+		}
+	}
+
+	return last_ret;
 }
 
 int scsi_device_probe(struct scsi_device *sdev)

@@ -48,11 +48,13 @@ config USBH_MSC_DISK
 if USBH_MSC_DISK
 
 config USBH_MSC_DISK_NAME
-	string "disk_access name for auto-attached LUN0"
+	string "Base disk_access name for auto-attached MSC volumes"
 	default "USB"
 	help
-	  Volume name passed to scsi_disk_register() for LUN0 when auto-attach
-	  is enabled during usbh_msc_storage_bringup().
+	  Prefix for scsi_disk_register() volume names when auto-attach is enabled.
+	  The first MSC LUN on any port uses this name exactly (e.g. ``USB``); each
+	  additional attached LUN across all devices gets a numeric suffix (``USB1``,
+	  ``USB2``, …) up to @kconfig:option:`CONFIG_USBH_MSC_LUN_SLOTS`.
 
 config USBH_MSC_DISK_AUTO_ATTACH
 	bool "Auto-attach LUN0 scsi_disk during storage bringup"

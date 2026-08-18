@@ -4,8 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <string.h>
+
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/usb/usb_ch9.h>
+#include <zephyr/usb/usb_msc_disk.h>
 #include <zephyr/usb/usbh_msc.h>
 #include <zephyr/usb/usbh_msc_bot.h>
 #include <zephyr/usb/usbh_msc_scsi_cmd.h>
@@ -59,6 +62,24 @@ ZTEST(msc_host, test_bot_verify10_cbw)
 	zassert_equal(cbw.bCBWCBLength, USB_SCSI_VERIFY10_CDB_LEN);
 	zassert_equal(cbw.CBWCB[0], USB_SCSI_VERIFY10);
 	zassert_equal(sys_be16_to_cpu(*(uint16_t *)&cbw.CBWCB[7]), 8U);
+}
+
+ZTEST(msc_host, test_disk_volume_name_format)
+{
+	char name[16];
+	int len;
+
+	len = usb_msc_disk_format_volume_name(0U, name, sizeof(name));
+	zassert_true(len > 0, "vol0 len");
+	zassert_mem_equal(name, CONFIG_USBH_MSC_DISK_NAME, strlen(CONFIG_USBH_MSC_DISK_NAME));
+
+	len = usb_msc_disk_format_volume_name(1U, name, sizeof(name));
+	zassert_true(len > 0, "vol1 len");
+	zassert_mem_equal(name, CONFIG_USBH_MSC_DISK_NAME "1", strlen(CONFIG_USBH_MSC_DISK_NAME "1"));
+
+	len = usb_msc_disk_format_volume_name(3U, name, sizeof(name));
+	zassert_true(len > 0, "vol3 len");
+	zassert_mem_equal(name, CONFIG_USBH_MSC_DISK_NAME "3", strlen(CONFIG_USBH_MSC_DISK_NAME "3"));
 }
 
 ZTEST_SUITE(msc_host, NULL, NULL, NULL, NULL, NULL);

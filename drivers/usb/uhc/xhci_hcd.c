@@ -275,19 +275,15 @@ int xhci_setup(struct uhc_dwc3_data *priv)
 		xhci_writeq(priv, ir0, XHCI_IR_ERSTBA, erstba);
 	}
 
-	/*  zero DNCTRL to avoid spurious device events */
+	/* zero DNCTRL to avoid spurious device events */
 	xhci_writel(priv->op_base, XHCI_OP_DNCTRL, 0U);
 
-	/* Initialize EP0 ring */
-	xhci_ring_init(&priv->ep0_ring, priv->ep0_trbs, XHCI_EP0_RING_SIZE, 0U);
-
-	/* Per-DCI bulk/interrupt rings: xhci_ring_init() in Configure Endpoint. */
+	/* Per-slot EP0/bulk rings: xhci_slot_init_sw_rings() at Enable Slot. */
 
 	dwc3_dma_flush(priv->dcbaa, sizeof(priv->dcbaa));
 	dwc3_dma_flush(priv->cmd_trbs, sizeof(priv->cmd_trbs));
 	dwc3_dma_flush(priv->evt_trbs, sizeof(priv->evt_trbs));
 	dwc3_dma_flush(priv->erst, sizeof(priv->erst));
-	dwc3_dma_flush(priv->ep0_trbs, sizeof(priv->ep0_trbs));
 
 	LOG_DBG("xHCI: data structures initialized");
 	return 0;

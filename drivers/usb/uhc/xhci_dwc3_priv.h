@@ -39,6 +39,43 @@
 #define UHC_DWC3_BULK_IN_DATABUF_SZ   512U
 #define UHC_DWC3_BULK_XFER_TIMEOUT_MS 5000U
 
+struct uhc_dwc3_bulk_urb {
+	struct uhc_transfer *xfer;
+	uint32_t req_len;
+	uint32_t trb_dma_len;
+	bool dir_in;
+	bool in_staging;
+	struct xhci_td td;
+};
+
+/** Per-xHCI-slot software state (indexed by slot ID 1 … max). */
+struct xhci_dev_slot {
+	struct usb_device *udev;
+	bool active;
+	uint8_t root_port;
+	uint8_t port_speed;
+	uint16_t ep0_max_packet;
+	bool steady_after_configure_ep;
+	uint8_t dev_ctx[2048] __aligned(64);
+	uint8_t input_ctx[2048] __aligned(64);
+	struct xhci_trb ep0_trbs[XHCI_EP0_RING_SIZE] __aligned(64);
+	struct xhci_ring ep0_ring;
+	struct xhci_trb ep_bulk_trbs[32][XHCI_BULK_RING_SIZE] __aligned(64);
+	struct xhci_ring ep_bulk_rings[32];
+	struct k_sem xfer_sem;
+	struct uhc_transfer *ep0_active_xfer;
+	int xfer_result;
+	uint32_t xfer_length;
+	uint32_t xfer_comp_code;
+	struct uhc_transfer *bulk_active_xfer[32];
+	int bulk_xfer_result[32];
+	uint32_t bulk_xfer_length[32];
+	uint32_t bulk_xfer_comp_code[32];
+	uint64_t bulk_expect_ioc_trb_phys[32];
+	uint8_t bulk_td_trb_count[32];
+	struct uhc_dwc3_bulk_urb bulk_urb[32];
+};
+
 struct uhc_dwc3_config {
 	DEVICE_MMIO_NAMED_ROM(core);
 	DEVICE_MMIO_NAMED_ROM(usb2_wrapper);
@@ -65,6 +102,12 @@ struct uhc_dwc3_data {
 	/* DCBAA: device context base address array */
 	uint64_t dcbaa[XHCI_MAX_DEVSLOTS + 1] __aligned(64);
 
+	/* Per-xHCI-slot device state (index = slot ID). */
+	struct xhci_dev_slot slots[XHCI_MAX_DEVSLOTS + 1];
+
+	/* Device being enumerated by bus_reset / prepare_enum. */
+	struct usb_device *connect_udev;
+
 	/* Command ring */
 	struct xhci_trb cmd_trbs[XHCI_CMD_RING_SIZE] __aligned(64);
 	struct xhci_ring cmd_ring;
@@ -74,19 +117,7 @@ struct uhc_dwc3_data {
 	struct xhci_ring evt_ring;
 	struct xhci_erst_entry erst[1] __aligned(64);
 
-	/* EP0 transfer ring for addressed device */
-	struct xhci_trb ep0_trbs[XHCI_EP0_RING_SIZE] __aligned(64);
-	struct xhci_ring ep0_ring;
-
-	struct xhci_trb ep_bulk_trbs[32][XHCI_BULK_RING_SIZE] __aligned(64);
-	struct xhci_ring ep_bulk_rings[32];
-
-	uint8_t dev_ctx[2048] __aligned(64);
-	uint8_t input_ctx[2048] __aligned(64);
-
-	uint8_t slot_id;
 	uint8_t port_speed;
-	uint16_t ep0_max_packet;
 	bool root_connect_submitted;
 	uint8_t root_port;
 	bool write_64_hi_lo;
@@ -94,28 +125,6 @@ struct uhc_dwc3_data {
 	struct k_sem cmd_sem;
 	uint32_t cmd_comp_code;
 	uint32_t cmd_slot_id;
-
-	struct k_sem xfer_sem;
-	struct uhc_transfer *ep0_active_xfer;
-	int xfer_result;
-	uint32_t xfer_length;
-	uint32_t xfer_comp_code;
-
-	struct uhc_transfer *bulk_active_xfer[32];
-	int bulk_xfer_result[32];
-	uint32_t bulk_xfer_length[32];
-	uint32_t bulk_xfer_comp_code[32];
-	uint64_t bulk_expect_ioc_trb_phys[32];
-	uint8_t bulk_td_trb_count[32];
-
-	struct uhc_dwc3_bulk_urb {
-		struct uhc_transfer *xfer;
-		uint32_t req_len;
-		uint32_t trb_dma_len;
-		bool dir_in;
-		bool in_staging;
-		struct xhci_td td;
-	} bulk_urb[32];
 
 	struct k_mutex evt_mutex;
 	struct k_work event_work;
@@ -125,9 +134,9 @@ struct uhc_dwc3_data {
 	uint64_t scratchpad_table[XHCI_MAX_SCRATCHPADS] __aligned(64);
 	uint8_t scratchpad_bufs[XHCI_MAX_SCRATCHPADS][4096] __aligned(4096);
 
-	bool steady_after_configure_ep;
 	uint8_t bulk_out_staging[CONFIG_UHC_DWC3_BULK_OUT_STAGING_BUFSZ] __aligned(64);
 	uint8_t bulk_in_databuf[UHC_DWC3_BULK_IN_DATABUF_SZ] __aligned(64);
+
 	uint8_t bulk_in_smallbuf[64] __aligned(64);
 };
 

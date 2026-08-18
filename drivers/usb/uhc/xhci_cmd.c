@@ -33,6 +33,7 @@
 #include "xhci_bulk.h"
 #include "xhci_dwc3_bulk.h"
 #include "xhci_dma.h"
+#include "xhci_slot.h"
 
 LOG_MODULE_DECLARE(uhc_dwc3, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
@@ -76,12 +77,13 @@ int xhci_send_command(struct uhc_dwc3_data *priv, uint32_t param_lo, uint32_t pa
 	return xhci_send_command_ex(priv, param_lo, param_hi, status, control, false);
 }
 
-int xhci_cmd_configure_endpoint(struct uhc_dwc3_data *priv)
+int xhci_cmd_configure_endpoint(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot)
 {
-	uint64_t inp_phys = xhci_dma_addr(priv->input_ctx);
-	uint32_t control = XHCI_TRB_TYPE(XHCI_TRB_CONFIGURE_EP) | XHCI_TRB_SLOT_ID(priv->slot_id);
+	uint64_t inp_phys = xhci_dma_addr(slot->input_ctx);
+	uint32_t control = XHCI_TRB_TYPE(XHCI_TRB_CONFIGURE_EP) |
+			   XHCI_TRB_SLOT_ID(slot->udev->slot_id);
 
-	dwc3_dma_flush(priv->input_ctx, 2048);
+	dwc3_dma_flush(slot->input_ctx, 2048);
 	return xhci_send_command(priv, (uint32_t)inp_phys, (uint32_t)(inp_phys >> 32), 0, control);
 }
 
@@ -153,10 +155,10 @@ static const char *xhci_ep_type_short(uint32_t et)
 /*
  * Debug: one line per output endpoint context (invalidate dev_ctx first).
  */
-static void xhci_inf_dump_out_ep(const struct uhc_dwc3_data *priv, unsigned int dci,
-				 const char *tag)
+static void xhci_inf_dump_out_ep(const struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				 unsigned int dci, const char *tag)
 {
-	struct xhci_ep_ctx *ep = xhci_slot_output_ep_ctx(priv, dci);
+	struct xhci_ep_ctx *ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 	uint32_t et = xhci_ep_ctx_ep_type_from_ep_info2(ep->ep_info2);
 
 	UHC_DWC3_DBG("[%s] DCI%u OUT-dev_ctx ep_info=0x%08x ST=%u ep_info2=0x%08x "
@@ -166,9 +168,10 @@ static void xhci_inf_dump_out_ep(const struct uhc_dwc3_data *priv, unsigned int 
 		     xhci_ep_type_short(et), (unsigned long long)ep->deq, ep->tx_info);
 }
 
-static void xhci_inf_dump_slot_out(const struct uhc_dwc3_data *priv, const char *tag)
+static void xhci_inf_dump_slot_out(const struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				   const char *tag)
 {
-	struct xhci_slot_ctx *s = (struct xhci_slot_ctx *)priv->dev_ctx;
+	struct xhci_slot_ctx *s = (struct xhci_slot_ctx *)slot->dev_ctx;
 	uint32_t di = s->dev_info;
 	uint32_t last_ctx = (di >> 27) & 0x1fU;
 
@@ -183,12 +186,17 @@ static void xhci_inf_dump_slot_out(const struct uhc_dwc3_data *priv, const char 
  */
 int xhci_dwc3_bulk_output_eps_steady(struct uhc_dwc3_data *priv, struct usb_device *udev)
 {
+	struct xhci_dev_slot *slot = xhci_slot_udev(priv, udev);
 	unsigned int bulk_in_need = 0U;
 	unsigned int bulk_out_need = 0U;
 	bool bulk_in_running = false;
 	bool bulk_out_running = false;
 	uint8_t dci_has_desc[32];
 	unsigned int max_dci = 1U;
+
+	if (slot == NULL) {
+		return -EINVAL;
+	}
 
 	memset(dci_has_desc, 0, sizeof(dci_has_desc));
 
@@ -258,7 +266,7 @@ int xhci_dwc3_bulk_output_eps_steady(struct uhc_dwc3_data *priv, struct usb_devi
 		}
 
 		desc = xhci_ep_desc_for_dci(udev, (uint8_t)dci);
-		ep = xhci_slot_output_ep_ctx(priv, dci);
+		ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 
 		{
 			const uint32_t es = xhci_ep_ctx_ep_state(ep->ep_info);
@@ -298,7 +306,8 @@ int xhci_dwc3_bulk_output_eps_steady(struct uhc_dwc3_data *priv, struct usb_devi
  * Expected for bulk: ep_type BULK_IN/BULK_OUT, EP_STATE=RUNNING (1), deq!=0.
  */
 void xhci_dwc3_verify_post_configure(struct uhc_dwc3_data *priv, struct usb_device *udev,
-				     const uint8_t *dci_has_desc, unsigned int max_dci)
+				     struct xhci_dev_slot *slot, const uint8_t *dci_has_desc,
+				     unsigned int max_dci)
 {
 	unsigned int bulk_in_need = 0U;
 	unsigned int bulk_out_need = 0U;
@@ -306,7 +315,7 @@ void xhci_dwc3_verify_post_configure(struct uhc_dwc3_data *priv, struct usb_devi
 	bool bulk_out_running = false;
 
 	UHC_DWC3_DBG("OutputDevCtx scan (slot=%u addr=%u speed=%u LAST_CTX=%u)",
-		     (unsigned int)priv->slot_id, (unsigned int)udev->addr,
+		     (unsigned int)udev->slot_id, (unsigned int)udev->addr,
 		     (unsigned int)udev->speed, (unsigned int)max_dci);
 
 	for (unsigned int n = 1U; n < 16U; n++) {
@@ -332,7 +341,7 @@ void xhci_dwc3_verify_post_configure(struct uhc_dwc3_data *priv, struct usb_devi
 		}
 
 		desc = xhci_ep_desc_for_dci(udev, (uint8_t)dci);
-		ep = xhci_slot_output_ep_ctx(priv, dci);
+		ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 
 		{
 			const uint32_t es = xhci_ep_ctx_ep_state(ep->ep_info);
@@ -409,11 +418,11 @@ void xhci_dwc3_verify_post_configure(struct uhc_dwc3_data *priv, struct usb_devi
  * doorbells then produce no transfer events. Inactive placeholder DCIs (no
  * descriptor) are also omitted from add_flags.
  */
-int xhci_evaluate_context_copy_output(struct uhc_dwc3_data *priv, unsigned int max_dci,
-				      const uint8_t *dci_has_desc)
+int xhci_evaluate_context_copy_output(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				      unsigned int max_dci, const uint8_t *dci_has_desc)
 {
-	uint8_t *inp = priv->input_ctx;
-	uint8_t *out = priv->dev_ctx;
+	uint8_t *inp = slot->input_ctx;
+	uint8_t *out = slot->dev_ctx;
 	uint32_t slot_off = xhci_input_ctx_slot_offset(priv->ctx_bytes);
 	uint32_t cb = priv->ctx_bytes;
 	struct xhci_input_ctrl_ctx *icc;
@@ -454,18 +463,18 @@ int xhci_evaluate_context_copy_output(struct uhc_dwc3_data *priv, unsigned int m
 
 	return xhci_send_command(priv, (uint32_t)inp_phys, (uint32_t)(inp_phys >> 32), 0,
 				 XHCI_TRB_TYPE(XHCI_TRB_EVAL_CONTEXT) |
-					 XHCI_TRB_SLOT_ID(priv->slot_id));
+					 XHCI_TRB_SLOT_ID(slot->udev->slot_id));
 }
 
 /*
  * xHCI_reset_bandwidth(): clear input control add/drop flags and EP
  * contexts after a failed check_bandwidth / configure path.
  */
-void xhci_dwc3_reset_bandwidth_sw(struct uhc_dwc3_data *priv)
+void xhci_dwc3_reset_bandwidth_sw(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot)
 {
 	uint32_t slot_off = xhci_input_ctx_slot_offset(priv->ctx_bytes);
-	struct xhci_input_ctrl_ctx *icc = (struct xhci_input_ctrl_ctx *)priv->input_ctx;
-	struct xhci_slot_ctx *slot_in = (struct xhci_slot_ctx *)(priv->input_ctx + slot_off);
+	struct xhci_input_ctrl_ctx *icc = (struct xhci_input_ctrl_ctx *)slot->input_ctx;
+	struct xhci_slot_ctx *slot_in = (struct xhci_slot_ctx *)(slot->input_ctx + slot_off);
 
 	icc->add_flags = 0U;
 	icc->drop_flags = 0U;
@@ -473,11 +482,11 @@ void xhci_dwc3_reset_bandwidth_sw(struct uhc_dwc3_data *priv)
 	slot_in->dev_info |= (((uint32_t)1U & 0x1fU) << 27);
 	for (unsigned int dci = 1U; dci < 32U; dci++) {
 		struct xhci_ep_ctx *ep =
-			(struct xhci_ep_ctx *)(priv->input_ctx + slot_off + dci * priv->ctx_bytes);
+			(struct xhci_ep_ctx *)(slot->input_ctx + slot_off + dci * priv->ctx_bytes);
 
 		memset(ep, 0, sizeof(*ep));
 	}
-	priv->steady_after_configure_ep = false;
+	slot->steady_after_configure_ep = false;
 }
 
 /*
@@ -488,7 +497,8 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 {
 	const struct uhc_dwc3_config *cfg = priv->dev->config;
 	const bool ctx_mirror = xhci_plat_quirk(&cfg->xhci_plat, XHCI_QUIRK_CFG_EP_CTX_MIRROR);
-	uint8_t *inp = priv->input_ctx;
+	struct xhci_dev_slot *slot = xhci_slot_udev(priv, udev);
+	uint8_t *inp;
 	uint32_t slot_off = xhci_input_ctx_slot_offset(priv->ctx_bytes);
 	uint32_t cb = priv->ctx_bytes;
 	struct xhci_input_ctrl_ctx *icc;
@@ -497,6 +507,12 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 	unsigned int mirrored = 0U;
 	uint8_t dci_has_desc[32];
 	int ret;
+
+	if (slot == NULL) {
+		return -EINVAL;
+	}
+
+	inp = slot->input_ctx;
 
 	memset(dci_has_desc, 0, sizeof(dci_has_desc));
 
@@ -541,10 +557,10 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 		return 0;
 	}
 
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 
 	memset(inp, 0, 2048);
-	memcpy(inp + slot_off, priv->dev_ctx, 2U * cb);
+	memcpy(inp + slot_off, slot->dev_ctx, 2U * cb);
 
 	for (unsigned int dci = 2U; dci <= max_dci; dci++) {
 		struct xhci_ep_ctx *ep = (struct xhci_ep_ctx *)(inp + slot_off + dci * cb);
@@ -576,12 +592,12 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 			mps = (uint16_t)USB_MPS_EP_SIZE(desc->wMaxPacketSize);
 			dir_in = USB_EP_DIR_IS_IN(desc->bEndpointAddress);
 
-			xhci_ring_init(&priv->ep_bulk_rings[dci], priv->ep_bulk_trbs[dci],
+			xhci_ring_init(&slot->ep_bulk_rings[dci], slot->ep_bulk_trbs[dci],
 				       XHCI_BULK_RING_SIZE, 0U);
-			dwc3_dma_flush(priv->ep_bulk_trbs[dci], sizeof(priv->ep_bulk_trbs[dci]));
+			dwc3_dma_flush(slot->ep_bulk_trbs[dci], sizeof(slot->ep_bulk_trbs[dci]));
 
-			seg = xhci_dma_addr(priv->ep_bulk_rings[dci].trbs);
-			dcs = priv->ep_bulk_rings[dci].cycle_state & 1U;
+			seg = xhci_dma_addr(slot->ep_bulk_rings[dci].trbs);
+			dcs = slot->ep_bulk_rings[dci].cycle_state & 1U;
 
 			memset(ep, 0, sizeof(*ep));
 
@@ -643,15 +659,15 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 
 	UHC_DWC3_DBG("Configure EP: issuing xHCI Configure Endpoint (slot=%u LAST_CTX=%u "
 		     "add_flags=0x%08x)",
-		     (unsigned int)priv->slot_id, (unsigned int)max_dci, add_flags);
+		     (unsigned int)udev->slot_id, (unsigned int)max_dci, add_flags);
 
-	ret = xhci_cmd_configure_endpoint(priv);
+	ret = xhci_cmd_configure_endpoint(priv, slot);
 	if (ret != 0) {
-		xhci_dwc3_reset_bandwidth_sw(priv);
+		xhci_dwc3_reset_bandwidth_sw(priv, slot);
 		return ret;
 	}
 
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 
 	/*
 	 * Stop EP0 *before* OutputDevCtx bulk mirror: on some DWC3+xHCI IP, issuing
@@ -669,7 +685,7 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 
 		if (ctx_mirror) {
 			for (unsigned int dci = 2U; dci <= max_dci; dci++) {
-				struct xhci_ep_ctx *out_ep = xhci_slot_output_ep_ctx(priv, dci);
+				struct xhci_ep_ctx *out_ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 				const uint8_t *in_ep = inp + slot_off + (size_t)dci * (size_t)cb;
 
 				if (dci_has_desc[dci] == 0U) {
@@ -698,9 +714,9 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 		}
 	}
 
-	dwc3_dma_flush(priv->dev_ctx, 2048);
+	dwc3_dma_flush(slot->dev_ctx, 2048);
 	/* CPU read of Output Device Context after HC DMA / mirror + flush */
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 
 	/*
 	 * Evaluate Context: optional for fully writeback-capable xHCI; required on
@@ -713,7 +729,7 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 	if (mirrored > 0U) {
 		int evr;
 
-		evr = xhci_evaluate_context_copy_output(priv, max_dci, dci_has_desc);
+		evr = xhci_evaluate_context_copy_output(priv, slot, max_dci, dci_has_desc);
 
 		if (evr != 0) {
 			LOG_ERR("Configure EP: Evaluate Context refresh failed (%d) "
@@ -722,15 +738,15 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 			return evr;
 		}
 
-		dwc3_dma_flush(priv->dev_ctx, 2048);
-		dwc3_dma_invalidate(priv->dev_ctx, 2048);
+		dwc3_dma_flush(slot->dev_ctx, 2048);
+		dwc3_dma_invalidate(slot->dev_ctx, 2048);
 #if IS_ENABLED(CONFIG_UHC_DWC3_DEBUG)
-		xhci_inf_dump_slot_out(priv, "EVAL post-cmd OK (output dev_ctx)");
+		xhci_inf_dump_slot_out(priv, slot, "EVAL post-cmd OK (output dev_ctx)");
 #endif
-		xhci_ep0_ring_sync_from_hw(priv);
+		xhci_ep0_ring_sync_from_hw(priv, slot);
 		for (unsigned int dci = 2U; dci <= max_dci; dci++) {
 			if (dci_has_desc[dci] != 0U) {
-				xhci_dwc3_bulk_sync_ring_from_hw(priv, (uint8_t)dci);
+				xhci_dwc3_bulk_sync_ring_from_hw(priv, slot, (uint8_t)dci);
 			}
 		}
 	}
@@ -738,8 +754,8 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 	UHC_DWC3_DBG(
 		"Configure EP: xHCI COMP_SUCCESS (LAST_CTX idx=%u) — starting OutputDevCtx verify",
 		max_dci);
-	xhci_dwc3_verify_post_configure(priv, udev, dci_has_desc, max_dci);
-	priv->steady_after_configure_ep = true;
+	xhci_dwc3_verify_post_configure(priv, udev, slot, dci_has_desc, max_dci);
+	slot->steady_after_configure_ep = true;
 	UHC_DWC3_DBG("Configure EP: steady_after_configure_ep=true (expect no bus_reset until "
 		     "disconnect; "
 		     "addr=%u)",
@@ -750,9 +766,11 @@ int xhci_dwc3_configure_non_ep0(struct uhc_dwc3_data *priv, struct usb_device *u
 /*
  * Stop Endpoint (ring) — xHCI 4.6.5. Used when Set TR Dequeue alone fails.
  */
-int xhci_cmd_stop_ep_ring(struct uhc_dwc3_data *priv, uint32_t ep_index)
+int xhci_cmd_stop_ep_ring(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+			  uint32_t ep_index)
 {
-	uint32_t ctrl = XHCI_TRB_TYPE(XHCI_TRB_STOP_RING) | XHCI_TRB_SLOT_ID(priv->slot_id) |
+	uint32_t ctrl = XHCI_TRB_TYPE(XHCI_TRB_STOP_RING) |
+			XHCI_TRB_SLOT_ID(slot->udev->slot_id) |
 			XHCI_TRB_EP_INDEX_FOR_CMD(ep_index);
 
 	return xhci_send_command(priv, 0, 0, 0, ctrl);
@@ -762,9 +780,11 @@ int xhci_cmd_stop_ep_ring(struct uhc_dwc3_data *priv, uint32_t ep_index)
  * ep_index: 0-based index passed to XHCI_TRB_EP_INDEX_FOR_CMD (0 → DCI 1 = EP0).
  * deq: full 64-bit TR Dequeue Pointer (segment address | DCS).
  */
-int xhci_cmd_set_tr_dequeue_deq(struct uhc_dwc3_data *priv, uint32_t ep_index, uint64_t deq)
+int xhci_cmd_set_tr_dequeue_deq(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot,
+				uint32_t ep_index, uint64_t deq)
 {
-	uint32_t ctrl = XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) | XHCI_TRB_SLOT_ID(priv->slot_id) |
+	uint32_t ctrl = XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) |
+			XHCI_TRB_SLOT_ID(slot->udev->slot_id) |
 			XHCI_TRB_EP_INDEX_FOR_CMD(ep_index);
 
 	return xhci_send_command_ex(priv, (uint32_t)deq, (uint32_t)(deq >> 32), 0, ctrl, false);
@@ -784,7 +804,8 @@ int xhci_cmd_set_tr_dequeue_deq(struct uhc_dwc3_data *priv, uint32_t ep_index, u
 int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_device *udev,
 				       bool force_drop_add)
 {
-	uint8_t *inp = priv->input_ctx;
+	struct xhci_dev_slot *slot = xhci_slot_udev(priv, udev);
+	uint8_t *inp;
 	uint32_t slot_off = xhci_input_ctx_slot_offset(priv->ctx_bytes);
 	uint32_t cb = priv->ctx_bytes;
 	struct xhci_input_ctrl_ctx *icc;
@@ -792,6 +813,12 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 	unsigned int max_dci = 1U;
 	uint8_t dci_has_desc[32];
 	int ret;
+
+	if (slot == NULL) {
+		return -EINVAL;
+	}
+
+	inp = slot->input_ctx;
 
 	memset(dci_has_desc, 0, sizeof(dci_has_desc));
 
@@ -843,9 +870,9 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 		}
 	}
 
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 #if IS_ENABLED(CONFIG_UHC_DWC3_DEBUG)
-	xhci_inf_dump_slot_out(priv, "bulk_refresh_pre_cmd");
+	xhci_inf_dump_slot_out(priv, slot, "bulk_refresh_pre_cmd");
 #endif
 
 	/*
@@ -894,7 +921,7 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 					     ? XHCI_EP_CTX_TYPE_BULK_IN
 					     : XHCI_EP_CTX_TYPE_BULK_OUT;
 
-			out_ep = xhci_slot_output_ep_ctx(priv, dci);
+			out_ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 			es = xhci_ep_ctx_ep_state(out_ep->ep_info);
 			et = xhci_ep_ctx_ep_type_from_ep_info2(out_ep->ep_info2);
 
@@ -915,7 +942,7 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 					       bulk_dci_mask);
 			for (unsigned int dci = 2U; dci <= max_dci; dci++) {
 				if ((bulk_dci_mask & (1U << dci)) != 0U) {
-					xhci_dwc3_bulk_sync_ring_from_hw(priv, (uint8_t)dci);
+					xhci_dwc3_bulk_sync_ring_from_hw(priv, slot, (uint8_t)dci);
 				}
 			}
 			return 0;
@@ -928,7 +955,7 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 
 	for (unsigned int i = 0U; i <= max_dci; i++) {
 		memcpy(inp + slot_off + (size_t)i * (size_t)cb,
-		       priv->dev_ctx + (size_t)i * (size_t)cb, (size_t)cb);
+		       slot->dev_ctx + (size_t)i * (size_t)cb, (size_t)cb);
 	}
 
 	for (unsigned int dci = 2U; dci <= max_dci; dci++) {
@@ -956,19 +983,19 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 		}
 
 #if IS_ENABLED(CONFIG_UHC_DWC3_DEBUG)
-		xhci_inf_dump_out_ep(priv, dci, "bulk_refresh_pre_ring");
+		xhci_inf_dump_out_ep(priv, slot, dci, "bulk_refresh_pre_ring");
 #endif
 
 		ep_inp = (struct xhci_ep_ctx *)(inp + slot_off + (size_t)dci * (size_t)cb);
 		mps = (uint16_t)USB_MPS_EP_SIZE(desc->wMaxPacketSize);
 		dir_in = USB_EP_DIR_IS_IN(desc->bEndpointAddress);
 
-		xhci_ring_init(&priv->ep_bulk_rings[dci], priv->ep_bulk_trbs[dci],
+		xhci_ring_init(&slot->ep_bulk_rings[dci], slot->ep_bulk_trbs[dci],
 			       XHCI_BULK_RING_SIZE, 0U);
-		dwc3_dma_flush(priv->ep_bulk_trbs[dci], sizeof(priv->ep_bulk_trbs[dci]));
+		dwc3_dma_flush(slot->ep_bulk_trbs[dci], sizeof(slot->ep_bulk_trbs[dci]));
 
-		seg = xhci_dma_addr(priv->ep_bulk_rings[dci].trbs);
-		dcs = priv->ep_bulk_rings[dci].cycle_state & 1U;
+		seg = xhci_dma_addr(slot->ep_bulk_rings[dci].trbs);
+		dcs = slot->ep_bulk_rings[dci].cycle_state & 1U;
 
 		memset(ep_inp, 0, sizeof(*ep_inp));
 		ep_inp->ep_info = XHCI_EP_CTX_EP_STATE_RUNNING;
@@ -988,7 +1015,7 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 
 	UHC_DWC3_BULK_FLOW_INF("uhc_flow: bulk refresh Configure EP slot=%u drop_add=0x%08x "
 			       "force=%d",
-			       (unsigned int)priv->slot_id, bulk_drop_add, force_drop_add ? 1 : 0);
+			       (unsigned int)udev->slot_id, bulk_drop_add, force_drop_add ? 1 : 0);
 
 	icc = (struct xhci_input_ctrl_ctx *)inp;
 	icc->drop_flags = bulk_drop_add;
@@ -998,15 +1025,15 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 
 	UHC_DWC3_DBG("bulk refresh Configure Endpoint slot=%u drop_add=0x%08x "
 		     "(post CLEAR_FEATURE HALT)",
-		     (unsigned int)priv->slot_id, bulk_drop_add);
+		     (unsigned int)udev->slot_id, bulk_drop_add);
 
-	ret = xhci_cmd_configure_endpoint(priv);
+	ret = xhci_cmd_configure_endpoint(priv, slot);
 	if (ret != 0) {
 		LOG_ERR("bulk refresh Configure Endpoint failed: %d", ret);
 		return ret;
 	}
 
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 
 	for (unsigned int dci = 2U; dci <= max_dci; dci++) {
 		struct xhci_ep_ctx *out_ep;
@@ -1021,7 +1048,7 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 			continue;
 		}
 
-		out_ep = xhci_slot_output_ep_ctx(priv, dci);
+		out_ep = xhci_slot_output_ep_ctx(slot, priv, dci);
 		in_ep = inp + slot_off + (size_t)dci * (size_t)cb;
 		tin = (const struct xhci_ep_ctx *)in_ep;
 		expect_typ = xhci_ep_ctx_ep_type_from_ep_info2(tin->ep_info2);
@@ -1056,8 +1083,8 @@ int xhci_bulk_eps_reconfigure_drop_add(struct uhc_dwc3_data *priv, struct usb_de
 		}
 	}
 
-	dwc3_dma_flush(priv->dev_ctx, 2048);
-	dwc3_dma_invalidate(priv->dev_ctx, 2048);
+	dwc3_dma_flush(slot->dev_ctx, 2048);
+	dwc3_dma_invalidate(slot->dev_ctx, 2048);
 
 	UHC_DWC3_DBG("bulk refresh done (fresh rings + OutputDevCtx)");
 	return 0;
@@ -1068,8 +1095,7 @@ int xhci_enable_slot(struct uhc_dwc3_data *priv)
 
 	ret = xhci_send_command(priv, 0, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_ENABLE_SLOT));
 	if (ret == 0) {
-		priv->slot_id = priv->cmd_slot_id;
-		LOG_DBG("xHCI: slot %u enabled", priv->slot_id);
+		LOG_DBG("xHCI: slot %u enabled", priv->cmd_slot_id);
 	}
 
 	return ret;
@@ -1080,77 +1106,4 @@ int xhci_disable_slot_cmd(struct uhc_dwc3_data *priv, uint8_t sid)
 	uint32_t control = XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | XHCI_TRB_SLOT_ID(sid);
 
 	return xhci_send_command(priv, 0, 0, 0, control);
-}
-
-/*
- * Reset software transfer rings to post-xhci_setup state (EP0 + per-DCI bulk).
- * Safe after Disable Slot or when cleaning up a session the HC no longer owns.
- */
-void xhci_reset_sw_transfer_rings(struct uhc_dwc3_data *priv)
-{
-	xhci_ring_init(&priv->ep0_ring, priv->ep0_trbs, XHCI_EP0_RING_SIZE, 0U);
-	dwc3_dma_flush(priv->ep0_trbs, sizeof(priv->ep0_trbs));
-	priv->ep0_active_xfer = NULL;
-	k_sem_reset(&priv->xfer_sem);
-
-	for (unsigned int dci = 2U; dci < 32U; dci++) {
-		xhci_ring_init(&priv->ep_bulk_rings[dci], priv->ep_bulk_trbs[dci],
-			       XHCI_BULK_RING_SIZE, 0U);
-		dwc3_dma_flush(priv->ep_bulk_trbs[dci], sizeof(priv->ep_bulk_trbs[dci]));
-		priv->bulk_active_xfer[dci] = NULL;
-		memset(&priv->bulk_urb[dci], 0, sizeof(priv->bulk_urb[dci]));
-		priv->bulk_expect_ioc_trb_phys[dci] = 0ULL;
-		priv->bulk_td_trb_count[dci] = 0U;
-		priv->bulk_xfer_result[dci] = 0;
-		priv->bulk_xfer_length[dci] = 0U;
-		priv->bulk_xfer_comp_code[dci] = 0U;
-	}
-}
-
-/*
- * Free the active device slot in the xHCI and drop DCBAA[slot]. Required on
- * disconnect/reconnect: otherwise bus_reset skips ENABLE_SLOT and Address Device
- * runs on stale context (EP0 GET_DESCRIPTOR may see COMP=6 STALL and multiple
- * spurious completions).
- */
-void xhci_teardown_active_slot(struct uhc_dwc3_data *priv)
-{
-	uint8_t sid = priv->slot_id;
-	int ret;
-
-	if (sid == 0U) {
-		return;
-	}
-
-	if (priv->ep0_active_xfer != NULL) {
-		(void)xhci_cancel_ep_xfer(priv, XHCI_DCI_DEFAULT_CONTROL, priv->ep0_active_xfer,
-					  -ECONNRESET);
-	}
-
-	for (unsigned int dci = 2U; dci < 32U; dci++) {
-		if (priv->bulk_active_xfer[dci] != NULL) {
-			(void)xhci_cancel_ep_xfer(priv, (uint8_t)dci, priv->bulk_active_xfer[dci],
-						  -ECONNRESET);
-		}
-	}
-
-	LOG_WRN("Disable Slot %u (disconnect / reconnect)", (unsigned int)sid);
-	ret = xhci_disable_slot_cmd(priv, sid);
-	if (ret != 0) {
-		LOG_WRN("Disable Slot %u failed (%d); clearing DCBAA + SW rings", (unsigned int)sid,
-			ret);
-	}
-
-	if (sid >= 1U && sid <= XHCI_MAX_DEVSLOTS) {
-		priv->dcbaa[sid] = 0ULL;
-	}
-	dwc3_dma_flush(priv->dcbaa, sizeof(priv->dcbaa));
-	memset(priv->dev_ctx, 0, 2048);
-	memset(priv->input_ctx, 0, 2048);
-	dwc3_dma_flush(priv->dev_ctx, 2048);
-	dwc3_dma_flush(priv->input_ctx, 2048);
-	priv->slot_id = 0U;
-	priv->steady_after_configure_ep = false;
-	priv->root_connect_submitted = false;
-	xhci_reset_sw_transfer_rings(priv);
 }
