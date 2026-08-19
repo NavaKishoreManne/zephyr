@@ -61,6 +61,8 @@ struct uhc_dwc3_data {
 	uint32_t ctx_bytes;
 	uint32_t max_slots;
 	uint32_t max_ports;
+	/** Maximum device link speed (from GHWPARAMS3 + zephyr,maximum-speed). */
+	enum usb_device_speed max_link_speed;
 
 	/* DCBAA: device context base address array */
 	uint64_t dcbaa[XHCI_MAX_DEVSLOTS + 1] __aligned(64);

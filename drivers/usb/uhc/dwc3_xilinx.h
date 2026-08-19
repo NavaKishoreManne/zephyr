@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/usb/uhc.h>
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/sys/util.h>
 
@@ -31,6 +32,11 @@ struct dwc3_xilinx_config {
 	uint32_t fladj;
 	/** Busy-wait after Address Device (BSR=0); 0 disables. */
 	uint8_t post_set_address_ms;
+	/**
+	 * zephyr,maximum-speed from DT (USB_SPEED_UNKNOWN = derive from GHWPARAMS3).
+	 * Versal LPD USB is USB 2.0 HS only — use "high-speed" like Linux versal*.dts.
+	 */
+	enum usb_device_speed maximum_speed;
 };
 
 static inline bool dwc3_xilinx_wrapper_present(mm_reg_t usb2_wrapper_base)
@@ -49,8 +55,11 @@ static inline uint8_t dwc3_xilinx_post_set_address_ms(const struct dwc3_xilinx_c
 }
 
 void dwc3_xilinx_pre_host_burst(mm_reg_t usb2_wrapper_base);
+void dwc3_xilinx_hs_phy_setup(mm_reg_t dwc3_base);
 void dwc3_xilinx_host_tune_post(const struct dwc3_xilinx_config *cfg, mm_reg_t dwc3_base,
 				mm_reg_t usb2_wrapper_base);
+enum usb_device_speed dwc3_xilinx_resolve_max_speed(mm_reg_t dwc3_base,
+						    enum usb_device_speed dt_cap);
 
 #define _DWC3_HAS_USB2_WRAPPER(n) DT_INST_REG_HAS_NAME(n, usb2_wrapper)
 
@@ -73,12 +82,24 @@ void dwc3_xilinx_host_tune_post(const struct dwc3_xilinx_config *cfg, mm_reg_t d
 #define _DWC3_POST_SET_ADDRESS_MS(n)                                                               \
 	DT_INST_PROP_OR(n, zephyr_post_set_address_ms, (_DWC3_WRAPPER_OR_DEFAULT(n, 10U)))
 
+#define _DWC3_MAX_SPEED_FROM_STR(s)                                                                \
+	COND_CODE_1(DT_SAME_STRING(s, high-speed), (USB_SPEED_SPEED_HS),                           \
+		    (COND_CODE_1(DT_SAME_STRING(s, full-speed), (USB_SPEED_SPEED_FS),              \
+				 (COND_CODE_1(DT_SAME_STRING(s, super-speed),                   \
+					      (USB_SPEED_SPEED_SS), (USB_SPEED_UNKNOWN))))))
+
+#define _DWC3_MAXIMUM_SPEED(n)                                                                     \
+	COND_CODE_1(DT_INST_NODE_HAS_PROP(n, zephyr_maximum_speed),                                \
+		    (_DWC3_MAX_SPEED_FROM_STR(DT_INST_PROP(n, zephyr_maximum_speed))),             \
+		    (USB_SPEED_UNKNOWN))
+
 /** Populate struct dwc3_xilinx_config from snps,dwc3 instance @a n. */
 #define DWC3_XILINX_CONFIG_INIT(n)                                                                 \
 	{                                                                                          \
 		.dwc3_quirks = _DWC3_DWC3_QUIRKS(n),                                               \
 		.fladj = _DWC3_FLAADJ(n),                                                          \
 		.post_set_address_ms = _DWC3_POST_SET_ADDRESS_MS(n),                               \
+		.maximum_speed = _DWC3_MAXIMUM_SPEED(n),                                           \
 	}
 
 #endif /* ZEPHYR_USB_DWC3_XILINX_H */

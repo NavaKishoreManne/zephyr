@@ -176,7 +176,10 @@ uint32_t xhci_in_bytes_from_event(uint32_t buf_len, uint32_t lenfield, uint32_t 
 void xhci_bulk_giveback_urb(struct uhc_dwc3_data *priv, uint8_t dci, int br, uint32_t cc,
 			    uint32_t lenfield);
 void xhci_dbg_log_normal_trb(const struct xhci_trb *t, const char *ctx);
+enum usb_device_speed xhci_port_speed_to_udev_speed(uint8_t xhci_speed);
 enum uhc_event_type xhci_port_speed_to_connect_event(uint8_t xhci_speed);
+enum uhc_event_type xhci_connect_event_capped(const struct uhc_dwc3_data *priv,
+					      uint8_t xhci_speed);
 void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt);
 int xhci_wait_cmd_sem(struct uhc_dwc3_data *priv, bool drain_evt_ring);
 void xhci_process_events_nolock(struct uhc_dwc3_data *priv);

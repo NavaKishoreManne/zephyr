@@ -464,7 +464,7 @@ void xhci_poll_boot_connected_device(struct uhc_dwc3_data *priv, const struct de
 	LOG_INF("xHCI: boot-connected device (speed %u)", priv->port_speed);
 
 	priv->root_connect_submitted = true;
-	(void)uhc_submit_event(priv->dev, xhci_port_speed_to_connect_event(priv->port_speed), 0);
+	(void)uhc_submit_event(priv->dev, xhci_connect_event_capped(priv, priv->port_speed), 0);
 
 	cfg->irq_enable_func(dev);
 }

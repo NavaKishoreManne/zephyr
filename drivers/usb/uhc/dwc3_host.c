@@ -139,5 +139,14 @@ int dwc3_host_burst_init(const struct device *dev)
 
 	dwc3_xilinx_host_tune_post(&cfg->xilinx, base, usb2_wrapper);
 
+	{
+		struct uhc_dwc3_data *priv = DEV_DATA(dev);
+
+		priv->max_link_speed = dwc3_xilinx_resolve_max_speed(base, cfg->xilinx.maximum_speed);
+		LOG_INF("DWC3: max link speed %u (GHWPARAMS3=0x%08x)",
+			(unsigned int)priv->max_link_speed,
+			(unsigned int)dwc3_readl(base, DWC3_GHWPARAMS3));
+	}
+
 	return 0;
 }

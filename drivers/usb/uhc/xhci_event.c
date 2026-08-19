@@ -294,6 +294,22 @@ static void xhci_log_cmd_completion_trb(struct uhc_dwc3_data *priv, uint64_t trb
 	}
 }
 
+enum usb_device_speed xhci_port_speed_to_udev_speed(uint8_t xhci_speed)
+{
+	switch (xhci_speed) {
+	case XHCI_SPEED_LOW:
+		return USB_SPEED_SPEED_LS;
+	case XHCI_SPEED_FULL:
+		return USB_SPEED_SPEED_FS;
+	case XHCI_SPEED_HIGH:
+		return USB_SPEED_SPEED_HS;
+	case XHCI_SPEED_SUPER:
+		return USB_SPEED_SPEED_SS;
+	default:
+		return USB_SPEED_SPEED_HS;
+	}
+}
+
 enum uhc_event_type xhci_port_speed_to_connect_event(uint8_t xhci_speed)
 {
 	enum uhc_event_type ev;
@@ -317,6 +333,19 @@ enum uhc_event_type xhci_port_speed_to_connect_event(uint8_t xhci_speed)
 	}
 
 	LOG_INF("DWC3: PORTSC speed code %u -> connect event", xhci_speed);
+
+	return ev;
+}
+
+enum uhc_event_type xhci_connect_event_capped(const struct uhc_dwc3_data *priv, uint8_t xhci_speed)
+{
+	enum uhc_event_type ev = xhci_port_speed_to_connect_event(xhci_speed);
+
+	if (priv != NULL && priv->max_link_speed < USB_SPEED_SPEED_SS &&
+	    ev == UHC_EVT_DEV_CONNECTED_SS) {
+		LOG_WRN("xHCI: SuperSpeed connect on HS-capped host; using HS");
+		return UHC_EVT_DEV_CONNECTED_HS;
+	}
 
 	return ev;
 }
@@ -587,8 +616,8 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 						LOG_INF("xHCI: device connected, speed=%u",
 							priv->port_speed);
 						uhc_submit_event(priv->dev,
-								 xhci_port_speed_to_connect_event(
-									 priv->port_speed),
+								 xhci_connect_event_capped(
+									 priv, priv->port_speed),
 								 0);
 					}
 				} else {

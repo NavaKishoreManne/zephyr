@@ -1,8 +1,7 @@
 /*
- * Devicetree overlay: DWC3 xHCI USB host on in-tree board versal_apu (&soc DTS).
- *
- * Parent is `soc` in amd/versal_a72.dtsi + amd/versal_apu.dtsi. VCK190 APU CED
- * variants use `amba` instead — adjust the parent node accordingly.
+ * DWC3 xHCI USB host for in-tree versal_apu (&soc DTS).
+ * Same content as boards/amd/versal_apu/usb_host.overlay — kept here so Twister
+ * picks it up as boards/versal_apu.overlay relative to the sample app.
  *
  * SPDX-FileCopyrightText: Copyright (c) 2026 Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: Apache-2.0
