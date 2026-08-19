@@ -61,6 +61,17 @@ properties:
       DWC3 devicetree binding — GFLADJ 30 MHz field for frame-length adjustment.
       When omitted on integrated wrappers, the Versal-class default (0x20) is used.
 
+  zephyr,maximum-speed:
+    type: string
+    enum:
+      - "high-speed"
+      - "full-speed"
+      - "super-speed"
+    description: |
+      Cap host link speed (Linux ``maximum-speed``). Versal LPD USB at 0xfe200000
+      is USB 2.0 High-Speed only — use ``high-speed`` as in Linux versal*.dts.
+      When omitted, speed is derived from DWC3 GHWPARAMS3 (SS PHY disabled → HS).
+
   zephyr,post-set-address-ms:
     type: int
     description: |

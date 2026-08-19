@@ -14,6 +14,7 @@
 		      <0x00 0xff9d0000 0x00 0x100>;
 		reg-names = "core", "usb2_wrapper";
 		interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+		zephyr,maximum-speed = "high-speed";
 		status = "okay";
 	};
 };

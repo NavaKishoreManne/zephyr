@@ -255,6 +255,9 @@ static int uhc_dwc3_enable(const struct device *dev)
 
 	cfg->irq_enable_func(dev);
 
+	LOG_INF("xHCI: running N_PORTS=%u max_link_speed=%u",
+		(unsigned int)priv->max_ports, (unsigned int)priv->max_link_speed);
+
 	LOG_DBG("xHCI controller running with interrupts enabled");
 
 	xhci_poll_boot_connected_device(priv, dev);
@@ -544,6 +547,18 @@ static int uhc_dwc3_bus_reset(const struct device *dev)
 	priv->port_speed = XHCI_PORTSC_SPEED(portsc);
 
 	/*
+	 * Connect CSC often reports Full-Speed before reset; HS chirp updates
+	 * PORTSC during the USB2 reset above. Refresh udev->speed for enum.
+	 */
+	if (udev != NULL) {
+		udev->speed = xhci_port_speed_to_udev_speed(priv->port_speed);
+	}
+
+	LOG_INF("bus_reset: PORTSC=0x%08x xHCI_speed=%u udev_speed=%u port %u",
+		portsc, (unsigned int)priv->port_speed,
+		udev != NULL ? (unsigned int)udev->speed : 0U, (unsigned int)reset_rp);
+
+	/*
 	 * Slot context speed encoding differs from PORTSC speed field;
 	 * match xusb_host_example SlotCtxSpeed().
 	 */
@@ -586,6 +601,8 @@ static int uhc_dwc3_bus_reset(const struct device *dev)
 	if (slot == NULL) {
 		return -EIO;
 	}
+
+	slot->port_speed = priv->port_speed;
 
 	UHC_DWC3_DBG("bus_reset: Address Device (BSR=1)");
 	ret = xhci_address_device_initial_udev(priv, slot, udev, reset_rp, slot_speed);

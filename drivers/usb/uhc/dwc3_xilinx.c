@@ -110,6 +110,12 @@ static void dwc3_xilinx_set_coherency_route(mm_reg_t usb2_wrapper_base)
 	dwc3_xilinx_usb2_writel(usb2_wrapper_base, VERSAL_USB2_COHERENCY, reg);
 }
 
+static void dwc3_xilinx_wrapper_host_dma(mm_reg_t usb2_wrapper_base)
+{
+	dwc3_xilinx_usb2_writel(usb2_wrapper_base, VERSAL_USB2_XHC_BME, 1U);
+	dwc3_xilinx_usb2_writel(usb2_wrapper_base, VERSAL_USB2_BIGENDIAN, 0U);
+}
+
 static void dwc3_xilinx_apply_jitter_adjust(mm_reg_t usb2_wrapper_base, mm_reg_t dwc3_base)
 {
 	uint32_t gfl = dwc3_readl(dwc3_base, DWC3_GFLADJ) & DWC3_GFLADJ_30MHZ_MASK;
@@ -123,6 +129,50 @@ static void dwc3_xilinx_apply_jitter_adjust(mm_reg_t usb2_wrapper_base, mm_reg_t
 	}
 
 	dwc3_xilinx_usb2_writel(usb2_wrapper_base, VERSAL_USB2_JITTER_ADJUST, new_jit);
+}
+
+void dwc3_xilinx_hs_phy_setup(mm_reg_t dwc3_base)
+{
+	uint32_t reg;
+
+	/*
+	 * Linux dwc3_hs_phy_setup(): UTMI 8-bit turnaround + leave PHY in P0
+	 * (clear SUSPHY) before xHCI RUN. Required for HS chirp on Versal USB2.
+	 */
+	reg = dwc3_readl(dwc3_base, DWC3_GUSB2PHYCFG(0));
+	reg &= ~(DWC3_GUSB2PHYCFG_PHYIF_MASK | DWC3_GUSB2PHYCFG_USBTRDTIM_MASK);
+	reg |= DWC3_GUSB2PHYCFG_PHYIF(UTMI_PHYIF_8_BIT) |
+	      DWC3_GUSB2PHYCFG_USBTRDTIM(USBTRDTIM_UTMI_8_BIT);
+	reg &= ~DWC3_GUSB2PHYCFG_SUSPHY;
+	reg |= DWC3_GUSB2PHYCFG_ENBLSLPM;
+	dwc3_writel(dwc3_base, DWC3_GUSB2PHYCFG(0), reg);
+
+	UHC_DWC3_DBG("GUSB2PHYCFG HS tune -> 0x%08x", dwc3_readl(dwc3_base, DWC3_GUSB2PHYCFG(0)));
+}
+
+enum usb_device_speed dwc3_xilinx_resolve_max_speed(mm_reg_t dwc3_base, enum usb_device_speed dt_cap)
+{
+	const uint32_t hwparams3 = dwc3_readl(dwc3_base, DWC3_GHWPARAMS3);
+	enum usb_device_speed hw_cap;
+
+	switch (DWC3_GHWPARAMS3_SSPHY_IFC(hwparams3)) {
+	case DWC3_GHWPARAMS3_SSPHY_IFC_DIS:
+		hw_cap = USB_SPEED_SPEED_HS;
+		break;
+	case DWC3_GHWPARAMS3_SSPHY_IFC_GEN1:
+	case DWC3_GHWPARAMS3_SSPHY_IFC_GEN2:
+		hw_cap = USB_SPEED_SPEED_SS;
+		break;
+	default:
+		hw_cap = USB_SPEED_SPEED_SS;
+		break;
+	}
+
+	if (dt_cap != USB_SPEED_UNKNOWN && dt_cap < hw_cap) {
+		return dt_cap;
+	}
+
+	return hw_cap;
 }
 
 void dwc3_xilinx_pre_host_burst(mm_reg_t usb2_wrapper_base)
@@ -154,6 +204,8 @@ void dwc3_xilinx_host_tune_post(const struct dwc3_xilinx_config *cfg, mm_reg_t d
 	dwc3_xilinx_apply_guctl1_host(dwc3_base);
 	dwc3_xilinx_clear_susphy(cfg, dwc3_base);
 	dwc3_xilinx_set_coherency_route(usb2_wrapper_base);
+	dwc3_xilinx_wrapper_host_dma(usb2_wrapper_base);
+	dwc3_xilinx_hs_phy_setup(dwc3_base);
 
 	UHC_DWC3_DBG("xilinx host tune done wrapper=0x%08x", (unsigned int)usb2_wrapper_base);
 }

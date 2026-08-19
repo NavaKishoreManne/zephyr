@@ -115,7 +115,10 @@
 #define DWC3_GUSB2PHYCFG_ENBLSLPM       BIT(8)
 #define DWC3_GUSB2PHYCFG_SUSPHY         BIT(6)
 #define DWC3_GUSB2PHYCFG_PHYIF(n)       ((n) << 3)
+#define DWC3_GUSB2PHYCFG_PHYIF_MASK     BIT(3)
 #define DWC3_GUSB2PHYCFG_ULPI_UTMI      BIT(4)
+#define UTMI_PHYIF_8_BIT                0
+#define UTMI_PHYIF_16_BIT               1
 #define USBTRDTIM_UTMI_8_BIT            9
 #define USBTRDTIM_UTMI_16_BIT           5
 
@@ -145,8 +148,11 @@
 #define DWC3_GHWPARAMS1_EN_PWROPT_NO  0
 #define DWC3_GHWPARAMS1_EN_PWROPT_CLK 1
 #define DWC3_GHWPARAMS1_EN_PWROPT_HIB 2
-#define DWC3_GHWPARAMS3_SSPHY_IFC(n)  ((n) & 3)
-#define DWC3_GHWPARAMS3_HSPHY_IFC(n)  (((n) >> 2) & 3)
+#define DWC3_GHWPARAMS3_SSPHY_IFC(n)       ((n) & 3)
+#define DWC3_GHWPARAMS3_SSPHY_IFC_DIS      0
+#define DWC3_GHWPARAMS3_SSPHY_IFC_GEN1     1
+#define DWC3_GHWPARAMS3_SSPHY_IFC_GEN2     2
+#define DWC3_GHWPARAMS3_HSPHY_IFC(n)       (((n) >> 2) & 3)
 
 /* GFLADJ */
 #define DWC3_GFLADJ_30MHZ_SDBND_SEL   BIT(7)
