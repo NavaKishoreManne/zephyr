@@ -63,7 +63,7 @@ static int hub_find_status_ep(const struct usb_device *const udev, const uint8_t
 		return -ENOENT;
 	}
 
-	head = usbh_desc_get_next(ifd);
+	head = usbh_desc_get_next(ifd, usbh_desc_cfg_end(udev->cfg_desc));
 	while (head != NULL) {
 		if (head->bDescriptorType == USB_DESC_INTERFACE) {
 			break;
@@ -81,7 +81,7 @@ static int hub_find_status_ep(const struct usb_device *const udev, const uint8_t
 			}
 		}
 
-		head = usbh_desc_get_next(head);
+		head = usbh_desc_get_next(head, usbh_desc_cfg_end(udev->cfg_desc));
 	}
 
 	return -ENOENT;

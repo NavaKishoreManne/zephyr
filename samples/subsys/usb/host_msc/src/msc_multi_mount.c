@@ -311,17 +311,7 @@ static int cmd_msc_write(const struct shell *sh, size_t argc, char **argv)
 		return err;
 	}
 
-	for (int pass = 0; pass < 5; pass++) {
-		err = fs_sync(&file);
-		if (err == 0) {
-			break;
-		}
-		if (err != -EIO && err != -EAGAIN) {
-			break;
-		}
-		k_msleep(50 * (pass + 1));
-	}
-
+	/* fs_close() syncs via FatFs; SCSI layer retries/best-effort SYNCHRONIZE CACHE */
 	err = fs_close(&file);
 	if (err != 0) {
 		shell_warn(sh, "msc write: close failed: %d — data may still be readable", err);

@@ -157,85 +157,134 @@ ZTEST(usbh_test, test_get_next_desc)
 {
 	const struct usb_device *udev;
 	const struct usb_desc_header *desc;
+	const void *desc_end;
 
 	udev = usbh_device_get_any(uhs_ctx);
 	zassert_not_null(udev);
 
 	desc = udev->cfg_desc;
 	zassert_not_null(desc);
+	desc_end = usbh_desc_cfg_end(udev->cfg_desc);
 
 	/* #0 cfg */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_CONFIGURATION);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #1 iad */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE_ASSOC);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #2 if0 */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #3 if0_out_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #4 if0_in_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #5 if1 */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #6 if1_int_out_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #7 if1_int_in_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #8 if2_0 */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #9 if2_0_iso_in_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #10 if2_0_iso_out_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #11 if2_1 */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #12 if2_1_iso_in_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
 	/* #13 if2_1_iso_out_ep */
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_ENDPOINT);
-	desc = usbh_desc_get_next(desc);
+	desc = usbh_desc_get_next(desc, desc_end);
 
-	/* #14 nil_desc */
+	/* end of wTotalLength */
 	zassert_is_null(desc);
+}
+
+ZTEST(usbh_test, test_get_next_desc_bounded)
+{
+	/*
+	 * Minimal MSC-like configuration: config + interface + bulk-OUT + bulk-IN.
+	 * Trailing bytes are 0xFF to mimic heap garbage past wTotalLength.
+	 */
+	uint8_t blob[64];
+	struct usb_cfg_descriptor *cfg = (void *)blob;
+	struct usb_if_descriptor *ifd;
+	struct usb_ep_descriptor *ep;
+	const struct usb_desc_header *desc;
+	const void *desc_end;
+	int count = 0;
+
+	memset(blob, 0xff, sizeof(blob));
+
+	cfg->bLength = sizeof(*cfg);
+	cfg->bDescriptorType = USB_DESC_CONFIGURATION;
+	cfg->wTotalLength = 9U + 9U + 7U + 7U;
+	cfg->bNumInterfaces = 1;
+
+	ifd = (void *)(blob + cfg->bLength);
+	ifd->bLength = sizeof(*ifd);
+	ifd->bDescriptorType = USB_DESC_INTERFACE;
+	ifd->bNumEndpoints = 2;
+
+	ep = (void *)((uint8_t *)ifd + ifd->bLength);
+	ep->bLength = sizeof(*ep);
+	ep->bDescriptorType = USB_DESC_ENDPOINT;
+	ep->bEndpointAddress = 0x01;
+
+	ep = (void *)((uint8_t *)ep + ep->bLength);
+	ep->bLength = sizeof(*ep);
+	ep->bDescriptorType = USB_DESC_ENDPOINT;
+	ep->bEndpointAddress = 0x81;
+
+	desc_end = usbh_desc_cfg_end(cfg);
+	desc = (void *)cfg;
+
+	while (desc != NULL) {
+		count++;
+		desc = usbh_desc_get_next(desc, desc_end);
+	}
+
+	zassert_equal(count, 4, "expected config + interface + 2 endpoints only");
 }
 
 ZTEST(usbh_test, test_get_types)
@@ -270,7 +319,7 @@ ZTEST(usbh_test, test_get_types)
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE);
 	zassert_equal(((struct usb_if_descriptor *)desc)->bInterfaceNumber, 1);
 	zassert_equal(((struct usb_if_descriptor *)desc)->bAlternateSetting, 0);
-	desc = usbh_desc_get_next_alt_setting(desc);
+	desc = usbh_desc_get_next_alt_setting(desc, usbh_desc_cfg_end(udev->cfg_desc));
 	zassert_is_null(desc);
 }
 
@@ -278,20 +327,22 @@ ZTEST(usbh_test, test_get_next_function)
 {
 	const struct usb_device *udev;
 	const struct usb_desc_header *desc;
+	const void *desc_end;
 
 	udev = usbh_device_get_any(uhs_ctx);
 	zassert_not_null(udev);
 
 	desc = udev->cfg_desc;
 	zassert_not_null(desc);
+	desc_end = usbh_desc_cfg_end(udev->cfg_desc);
 
 	/* #1 iad */
-	desc = usbh_desc_get_next_function(desc);
+	desc = usbh_desc_get_next_function(desc, desc_end);
 	zassert_not_null(desc);
 	zassert_equal(desc->bDescriptorType, USB_DESC_INTERFACE_ASSOC);
 
 	/* end */
-	desc = usbh_desc_get_next_function(desc);
+	desc = usbh_desc_get_next_function(desc, desc_end);
 	zassert_is_null(desc);
 }
 

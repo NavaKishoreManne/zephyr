@@ -515,6 +515,14 @@ int scsi_synchronize_cache_10(struct scsi_device *sdev)
 			return 0;
 		}
 
+#if CONFIG_SCSI_SYNC_CACHE_BEST_EFFORT
+		/* Many MSC sticks reject SYNCHRONIZE CACHE as ILLEGAL REQUEST. */
+		if (last_ret == -ENOTSUP) {
+			LOG_DBG("SYNCHRONIZE CACHE not supported by device");
+			return 0;
+		}
+#endif
+
 		if (last_ret != -EIO && last_ret != -EAGAIN) {
 			return last_ret;
 		}
@@ -524,6 +532,14 @@ int scsi_synchronize_cache_10(struct scsi_device *sdev)
 			k_msleep(CONFIG_SCSI_SYNC_CACHE_RETRY_DELAY_MS);
 		}
 	}
+
+#if CONFIG_SCSI_SYNC_CACHE_BEST_EFFORT
+	if (last_ret == -EIO || last_ret == -EAGAIN) {
+		LOG_DBG("SYNCHRONIZE CACHE best-effort: device returned %d after %d retries",
+			last_ret, CONFIG_SCSI_SYNC_CACHE_RETRY_COUNT);
+		return 0;
+	}
+#endif
 
 	return last_ret;
 }

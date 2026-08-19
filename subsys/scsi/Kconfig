@@ -44,6 +44,15 @@ config SCSI_SYNC_CACHE_RETRY_DELAY_MS
 	help
 	  Milliseconds to wait between SYNCHRONIZE CACHE retries.
 
+config SCSI_SYNC_CACHE_BEST_EFFORT
+	bool "Treat SYNCHRONIZE CACHE failure as success (best-effort flush)"
+	default y
+	help
+	  Some USB thumb drives stall or fail SYNCHRONIZE CACHE while ordinary
+	  READ/WRITE still succeed. Others return ILLEGAL REQUEST (command not
+	  supported). When enabled, treat those failures as success after
+	  retries so FatFs fs_sync()/fs_close() do not fail.
+
 # Define the SCSI subsystem as a module
 module = SCSI
 module-str = scsi
