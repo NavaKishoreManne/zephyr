@@ -552,18 +552,6 @@ static int uhc_dwc3_bus_reset(const struct device *dev)
 	priv->port_speed = XHCI_PORTSC_SPEED(portsc);
 
 	/*
-	 * Connect CSC often reports Full-Speed before reset; HS chirp updates
-	 * PORTSC during the USB2 reset above. Refresh udev->speed for enum.
-	 */
-	if (udev != NULL) {
-		udev->speed = xhci_port_speed_to_udev_speed(priv->port_speed);
-	}
-
-	LOG_INF("bus_reset: PORTSC=0x%08x xHCI_speed=%u udev_speed=%u port %u",
-		portsc, (unsigned int)priv->port_speed,
-		udev != NULL ? (unsigned int)udev->speed : 0U, (unsigned int)reset_rp);
-
-	/*
 	 * Slot context speed encoding differs from PORTSC speed field;
 	 * match xusb_host_example SlotCtxSpeed().
 	 */
@@ -597,19 +585,9 @@ static int uhc_dwc3_bus_reset(const struct device *dev)
 		UHC_DWC3_DBG("bus_reset: enable_slot done");
 	}
 
-<<<<<<< HEAD
 	/* Address Device with BSR=1 (xHCI_enable_device / xHCI 4.3.2).
 	 * xhci_address_device_initial() blocks on command completion internally.
 	 */
-=======
-	slot = xhci_slot_udev(priv, udev);
-	if (slot == NULL) {
-		return -EIO;
-	}
-
-	slot->port_speed = priv->port_speed;
-
->>>>>>> 178f3e362927 (drivers: usb: uhc: dwc3: enable Versal USB 2.0 High-Speed host)
 	UHC_DWC3_DBG("bus_reset: Address Device (BSR=1)");
 	ret = xhci_address_device_initial(priv, reset_rp, slot_speed);
 	if (ret != 0) {
