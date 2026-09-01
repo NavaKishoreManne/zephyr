@@ -12,6 +12,7 @@
 
 #include "usbh_device.h"
 #include "usbh_ch9.h"
+#include "usbh_desc.h"
 #include "usbh_host.h"
 #include "usbh_class.h"
 
@@ -473,16 +474,14 @@ static int parse_configuration_descriptor(struct usb_device *const udev)
 	struct usb_ep_descriptor *ep_desc;
 	struct usb_desc_header *dhp;
 	uint8_t tmp_nif = 0;
-	void *desc_end;
+	const void *desc_end = usbh_desc_cfg_end(cfg_desc);
 
 	dhp = (void *)((uint8_t *)udev->cfg_desc + cfg_desc->bLength);
-	desc_end = (void *)((uint8_t *)udev->cfg_desc + cfg_desc->wTotalLength);
 
 	while ((void *)dhp < desc_end) {
-		if ((uint8_t *)dhp + sizeof(struct usb_desc_header) > (uint8_t *)desc_end ||
-		    (uint8_t *)dhp + dhp->bLength > (uint8_t *)desc_end ||
-		    dhp->bLength <= sizeof(struct usb_desc_header)) {
-			LOG_ERR("Invalid descriptor size %d.", dhp->bLength);
+		if (!usbh_desc_header_in_bounds(dhp, desc_end)) {
+			LOG_ERR("Invalid descriptor at offset %u",
+				(unsigned int)((uint8_t *)dhp - (uint8_t *)cfg_desc));
 			return -EINVAL;
 		}
 

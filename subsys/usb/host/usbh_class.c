@@ -146,9 +146,10 @@ void usbh_class_probe_device(struct usb_device *const udev)
 	usbh_class_probe_function(udev, &filter_data, USBH_CLASS_IFNUM_DEVICE);
 
 	/* To support multi-function devices, match against each function */
+	const void *desc_end = usbh_desc_cfg_end(udev->cfg_desc);
 
 	while (true) {
-		desc = usbh_desc_get_next_function(desc);
+		desc = usbh_desc_get_next_function(desc, desc_end);
 		if (desc == NULL) {
 			break;
 		}

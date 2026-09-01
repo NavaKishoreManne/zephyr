@@ -194,7 +194,8 @@ static bool vc_header_is_valid(const void *const desc)
 	return header_desc->bDescriptorSubtype == UVC_VC_HEADER;
 }
 
-static const void *get_vs_desc_end(const struct usb_if_descriptor *const if_desc)
+static const void *get_vs_desc_end(const struct usb_if_descriptor *const if_desc,
+				   const void *cfg_end)
 {
 	const struct uvc_stream_header_descriptor *header_desc;
 	uint16_t total_length;
@@ -204,7 +205,7 @@ static const void *get_vs_desc_end(const struct usb_if_descriptor *const if_desc
 		return NULL;
 	}
 
-	header_desc = (const void *)usbh_desc_get_next(if_desc);
+	header_desc = (const void *)usbh_desc_get_next(if_desc, cfg_end);
 
 	if (!vs_header_is_valid(header_desc)) {
 		LOG_ERR("Invalid VS header descriptor");
@@ -215,7 +216,8 @@ static const void *get_vs_desc_end(const struct usb_if_descriptor *const if_desc
 	return (const uint8_t *)header_desc + total_length;
 }
 
-static const void *get_desc_vc_end(const struct usb_if_descriptor *const if_desc)
+static const void *get_desc_vc_end(const struct usb_if_descriptor *const if_desc,
+				   const void *cfg_end)
 {
 	const struct uvc_control_header_descriptor *header_desc;
 	uint16_t total_length;
@@ -225,7 +227,7 @@ static const void *get_desc_vc_end(const struct usb_if_descriptor *const if_desc
 		return NULL;
 	}
 
-	header_desc = (const void *)usbh_desc_get_next(if_desc);
+	header_desc = (const void *)usbh_desc_get_next(if_desc, cfg_end);
 
 	if (!vc_header_is_valid(header_desc)) {
 		LOG_ERR("Invalid VC header descriptor");
@@ -239,11 +241,10 @@ static const void *get_desc_vc_end(const struct usb_if_descriptor *const if_desc
 static int parse_vc_desc(struct uvc_host_data *const host_data,
 			 const void *const desc_beg, const void *const desc_end)
 {
-	const struct usb_desc_header *desc = usbh_desc_get_next(desc_beg);
+	const struct usb_desc_header *desc = usbh_desc_get_next(desc_beg, desc_end);
 	const struct usb_cs_desc_header *cs_desc;
 
-	for (; desc != NULL && (const uint8_t *)desc < (const uint8_t *)desc_end;
-	     desc = usbh_desc_get_next(desc)) {
+	for (; desc != NULL; desc = usbh_desc_get_next(desc, desc_end)) {
 		if (desc->bDescriptorType == USB_DESC_INTERFACE ||
 		    desc->bDescriptorType == USB_DESC_INTERFACE_ASSOC) {
 			break;
@@ -377,12 +378,11 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 static int parse_vs_desc(struct uvc_host_data *const host_data, const void *const desc_beg,
 			 const void *const desc_end)
 {
-	const struct usb_desc_header *desc = usbh_desc_get_next(desc_beg);
+	const struct usb_desc_header *desc = usbh_desc_get_next(desc_beg, desc_end);
 	const struct usb_ep_descriptor *ep_desc;
 	const struct usb_cs_desc_header *cs_desc;
 
-	for (; desc != NULL && (const uint8_t *)desc < (const uint8_t *)desc_end;
-		desc = usbh_desc_get_next(desc)) {
+	for (; desc != NULL; desc = usbh_desc_get_next(desc, desc_end)) {
 		if (desc->bDescriptorType == USB_DESC_INTERFACE ||
 		    desc->bDescriptorType == USB_DESC_INTERFACE_ASSOC) {
 			break;
@@ -496,8 +496,11 @@ static void parse_vs_interface_alt_desc(struct uvc_host_data *const host_data,
 		return;
 	}
 
-	if_desc = (const void *)usbh_desc_get_next_alt_setting(if_desc);
-	for (; if_desc != NULL; if_desc = (const void *)usbh_desc_get_next_alt_setting(if_desc)) {
+	if_desc = (const void *)usbh_desc_get_next_alt_setting(if_desc,
+		usbh_desc_cfg_end(host_data->udev->cfg_desc));
+	for (; if_desc != NULL;
+	     if_desc = (const void *)usbh_desc_get_next_alt_setting(
+			     if_desc, usbh_desc_cfg_end(host_data->udev->cfg_desc))) {
 
 		if (if_desc->bInterfaceNumber != iface ||
 		    if_desc->bInterfaceClass != USB_BCC_VIDEO ||
@@ -558,7 +561,7 @@ static int parse_descriptors(struct usbh_class_data *const c_data, uint8_t iface
 
 			host_data->current_ctrl_iface = if_desc;
 
-			vc_end = get_desc_vc_end(if_desc);
+			vc_end = get_desc_vc_end(if_desc, usbh_desc_cfg_end(host_data->udev->cfg_desc));
 			if (vc_end == NULL) {
 				return -EBADMSG;
 			}
@@ -583,7 +586,7 @@ static int parse_descriptors(struct usbh_class_data *const c_data, uint8_t iface
 			host_data->current_stream_iface_info.iface = if_desc;
 
 			/* Get the end of VideoStreaming descriptors */
-			vs_end = get_vs_desc_end(if_desc);
+			vs_end = get_vs_desc_end(if_desc, usbh_desc_cfg_end(host_data->udev->cfg_desc));
 			if (vs_end == NULL) {
 				return -EBADMSG;
 			}
@@ -673,14 +676,14 @@ static int find_frame_in_format(const struct uvc_format_common_descriptor *forma
 				const uint16_t target_width, const uint16_t target_height,
 				const uint8_t expected_frame_subtype,
 				const struct uvc_frame_common_descriptor **const found_frame,
-				uint32_t *const found_interval)
+				uint32_t *const found_interval, const void *desc_end)
 {
 	const struct usb_desc_header *desc = (const void *)format_header;
 
 	for (int i = 0; i < format_header->bNumFrameDescriptors;) {
 		const struct uvc_frame_common_descriptor *frame_header;
 
-		desc = usbh_desc_get_next(desc);
+		desc = usbh_desc_get_next(desc, desc_end);
 		if (desc == NULL) {
 			break;
 		}
@@ -742,7 +745,8 @@ static int find_format(struct uvc_host_data *const host_data,
 
 			ret = find_frame_in_format((const void *)uncomp_format, fmt->width,
 						   fmt->height, UVC_VS_FRAME_UNCOMPRESSED,
-						   frame, frmival);
+						   frame, frmival,
+						   usbh_desc_cfg_end(host_data->udev->cfg_desc));
 			if (ret == 0) {
 				*format = (const void *)uncomp_format;
 				LOG_DBG("Found frame: format=%p, frame=%p, interval=%u", *format,
@@ -764,7 +768,8 @@ static int find_format(struct uvc_host_data *const host_data,
 
 			ret = find_frame_in_format((const void *)mjpeg_format, fmt->width,
 						   fmt->height, UVC_VS_FRAME_MJPEG, frame,
-						   frmival);
+						   frmival,
+						   usbh_desc_cfg_end(host_data->udev->cfg_desc));
 			if (ret == 0) {
 				*format = (const void *)mjpeg_format;
 				LOG_DBG("Found MJPEG frame: format=%p, frame=%p, interval=%u",
@@ -872,7 +877,7 @@ static const struct usb_ep_descriptor *
 scan_interface_endpoints(const struct usb_if_descriptor *const if_desc,
 			 const enum usb_device_speed device_speed,
 			 uint32_t required_bandwidth, uint32_t max_tpl,
-			 uint32_t *found_bandwidth)
+			 uint32_t *found_bandwidth, const void *cfg_end)
 {
 	const struct usb_desc_header *desc;
 	const struct usb_ep_descriptor *ep_desc;
@@ -886,7 +891,8 @@ scan_interface_endpoints(const struct usb_if_descriptor *const if_desc,
 
 	/* Iterate through all descriptors following the interface descriptor */
 	desc = (const struct usb_desc_header *)if_desc;
-	while ((desc = usbh_desc_get_next(desc)) != NULL && ep_count < if_desc->bNumEndpoints) {
+	while ((desc = usbh_desc_get_next(desc, cfg_end)) != NULL &&
+	       ep_count < if_desc->bNumEndpoints) {
 		/* Stop if we hit another interface descriptor */
 		if (desc->bDescriptorType == USB_DESC_INTERFACE) {
 			break;
@@ -951,7 +957,8 @@ static int select_streaming_alternate(struct uvc_host_data *const host_data,
 		}
 
 		ep_desc = scan_interface_endpoints(if_desc, device_speed, required_bandwidth,
-						   max_tpl, &ep_bandwidth);
+						   max_tpl, &ep_bandwidth,
+						   usbh_desc_cfg_end(host_data->udev->cfg_desc));
 
 		if (ep_desc && ep_bandwidth < optimal_bandwidth) {
 			optimal_bandwidth = ep_bandwidth;
@@ -1360,7 +1367,8 @@ static int set_frame_rate(const struct device *dev, uint32_t fps)
 /* Parse frame descriptors for a specific format */
 static int parse_format_frames(const void *format_ptr, uint8_t num_frames,
 			       uint32_t pixelformat, uint8_t frame_subtype,
-			       struct video_format_cap *caps_array, int start_index)
+			       struct video_format_cap *caps_array, int start_index,
+			       const void *desc_end)
 {
 	const struct usb_desc_header *head = format_ptr;
 	const struct uvc_frame_common_descriptor *frame_header;
@@ -1370,7 +1378,7 @@ static int parse_format_frames(const void *format_ptr, uint8_t num_frames,
 	uint16_t height;
 
 	/* Skip the format descriptor */
-	head = usbh_desc_get_next(head);
+	head = usbh_desc_get_next(head, desc_end);
 
 	while (head != NULL && frames_found < num_frames) {
 		frame_header = (const struct uvc_frame_common_descriptor *)head;
@@ -1407,7 +1415,7 @@ static int parse_format_frames(const void *format_ptr, uint8_t num_frames,
 			}
 		}
 
-		head = usbh_desc_get_next(head);
+		head = usbh_desc_get_next(head, desc_end);
 	}
 
 	return cap_index;
@@ -1420,6 +1428,7 @@ static int create_format_caps(struct uvc_host_data *const host_data)
 	const struct uvc_format_mjpeg_descriptor *mjpeg_format;
 	uint32_t pixelformat;
 	int cap_index = 0;
+	const void *cfg_end = usbh_desc_cfg_end(host_data->udev->cfg_desc);
 
 	memset(host_data->format_caps, 0, sizeof(host_data->format_caps));
 	host_data->format_caps_count = 0;
@@ -1445,7 +1454,7 @@ static int create_format_caps(struct uvc_host_data *const host_data)
 
 		cap_index = parse_format_frames(
 			uncomp_format, uncomp_format->bNumFrameDescriptors, pixelformat,
-			UVC_VS_FRAME_UNCOMPRESSED, host_data->format_caps, cap_index);
+			UVC_VS_FRAME_UNCOMPRESSED, host_data->format_caps, cap_index, cfg_end);
 	}
 
 	/* Process MJPEG formats */
@@ -1462,7 +1471,7 @@ static int create_format_caps(struct uvc_host_data *const host_data)
 
 		cap_index = parse_format_frames(
 			mjpeg_format, mjpeg_format->bNumFrameDescriptors, VIDEO_PIX_FMT_JPEG,
-			UVC_VS_FRAME_MJPEG, host_data->format_caps, cap_index);
+			UVC_VS_FRAME_MJPEG, host_data->format_caps, cap_index, cfg_end);
 	}
 
 done:
