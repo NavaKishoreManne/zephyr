@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig USBIP
-	bool "USB USBIP support [EXPERIMENTAL]"
+	bool "USB USBIP support"
 	select EXPERIMENTAL
 	select EVENTS
 	depends on NETWORKING
@@ -11,7 +11,7 @@ menuconfig USBIP
 	depends on NET_TCP
 	depends on NET_SOCKETS
 	help
-	  Experimental USB USBIP support for exporting a device attached to a host controller.
+	  Experimental USB USBIP support.
 
 if USBIP
 

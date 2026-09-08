@@ -19,40 +19,13 @@
 #include <zephyr/usb/usbh.h>
 
 /**
- * @brief Get the end of a configuration descriptor blob.
+ * @brief Get the next descriptor in an array of descriptors.
  *
- * @param[in] cfg Configuration descriptor at the start of the blob.
+ * @param[in] desc Pointer to the beginning of the descriptor array to search.
  *
- * @return Pointer one byte past the last valid byte (offset wTotalLength).
+ * @return A pointer to the descriptor
  */
-static inline const void *usbh_desc_cfg_end(const struct usb_cfg_descriptor *cfg)
-{
-	return (const uint8_t *)cfg + cfg->wTotalLength;
-}
-
-/**
- * @brief Check that a descriptor header fits within a bounded descriptor blob.
- *
- * @param[in] desc Pointer to the descriptor header.
- * @param[in] desc_end Pointer one byte past the last valid byte of the blob.
- *
- * @return true if the descriptor header and its full length fit within the blob.
- */
-bool usbh_desc_header_in_bounds(const void *desc, const void *desc_end);
-
-/**
- * @brief Get the next descriptor in a bounded array of descriptors.
- *
- * Iteration stops at @p desc_end, matching the bounds used during configuration
- * descriptor parsing. The next descriptor must have a valid header that fits
- * entirely within the blob.
- *
- * @param[in] desc Pointer to the current descriptor.
- * @param[in] desc_end Pointer one byte past the last valid byte of the blob.
- *
- * @return Pointer to the next descriptor, or NULL if none remains.
- */
-const void *usbh_desc_get_next(const void *desc, const void *desc_end);
+const void *usbh_desc_get_next(const void *const desc);
 
 /**
  * @brief Search an interface descriptor matching the interface number wanted.
@@ -159,12 +132,11 @@ bool usbh_desc_is_valid_endpoint(const void *const desc);
  * association descriptor (IAD), and return it.
  *
  * @param[in] desc Pointer to the descriptor array to search.
- * @param[in] desc_end Pointer one byte past the last valid byte of the blob.
  *
  * @retval Pointer to the next matching descriptor.
  * @retval NULL if no matching descriptor was found
  */
-const void *usbh_desc_get_next_function(const void *desc, const void *desc_end);
+const void *usbh_desc_get_next_function(const void *const desc);
 
 /**
  * @brief Get the next alternate setting in the current interface.
@@ -174,10 +146,9 @@ const void *usbh_desc_get_next_function(const void *desc, const void *desc_end);
  * same bInterfaceNumber, or NULL if none was found or on invalid descriptor.
  *
  * @param[in] desc Pointer to the beginning of the descriptor array to search.
- * @param[in] desc_end Pointer one byte past the last valid byte of the blob.
  *
  * @return Pointer to the next matching descriptor or NULL.
  */
-const void *usbh_desc_get_next_alt_setting(const void *desc, const void *desc_end);
+const void *usbh_desc_get_next_alt_setting(const void *const desc);
 
 #endif /* ZEPHYR_INCLUDE_USBH_DESC_H */

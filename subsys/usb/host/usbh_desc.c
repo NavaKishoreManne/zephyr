@@ -59,70 +59,33 @@ bool usbh_desc_is_valid_endpoint(const void *const desc)
 				  USB_DESC_ENDPOINT);
 }
 
-bool usbh_desc_header_in_bounds(const void *desc, const void *desc_end)
+const void *usbh_desc_get_next(const void *const desc)
 {
-	const struct usb_desc_header *head = desc;
-	const uint8_t *d = desc;
-	const uint8_t *end = desc_end;
-
-	if (desc == NULL || desc_end == NULL || d >= end) {
-		return false;
-	}
-
-	if (d + sizeof(*head) > end) {
-		return false;
-	}
-
-	if (head->bLength == 0U) {
-		return false;
-	}
-
-	if (head->bLength < sizeof(*head)) {
-		return false;
-	}
-
-	if (d + head->bLength > end) {
-		return false;
-	}
-
-	return true;
-}
-
-const void *usbh_desc_get_next(const void *desc, const void *desc_end)
-{
-	const struct usb_desc_header *head = desc;
+	const struct usb_desc_header *const head = desc;
 	const void *next;
 
-	if (!usbh_desc_header_in_bounds(desc, desc_end)) {
-		return NULL;
-	}
-
-	if (!usbh_desc_is_valid(desc, sizeof(struct usb_desc_header), 0)) {
+	if (!usbh_desc_is_valid(desc, sizeof(const struct usb_desc_header), 0)) {
 		return NULL;
 	}
 
 	next = (const uint8_t *)desc + head->bLength;
 
-	if (!usbh_desc_header_in_bounds(next, desc_end)) {
-		return NULL;
-	}
-
-	if (!usbh_desc_is_valid(next, sizeof(struct usb_desc_header), 0)) {
+	if (!usbh_desc_is_valid(next, sizeof(const struct usb_desc_header), 0)) {
 		return NULL;
 	}
 
 	return next;
 }
 
-const void *usbh_desc_get_next_alt_setting(const void *desc, const void *desc_end)
+const void *usbh_desc_get_next_alt_setting(const void *const desc)
 {
 	const struct usb_desc_header *head = desc;
 
 	/* Skip the current interface descriptor */
-	head = usbh_desc_get_next(desc, desc_end);
+	head = usbh_desc_get_next(desc);
 
 	/* Seek to the next alternate setting for this interface */
-	for (; head != NULL; head = usbh_desc_get_next(head, desc_end)) {
+	for (; head != NULL; head = usbh_desc_get_next(head)) {
 		struct usb_if_descriptor *if_d = (void *)head;
 
 		if (head->bDescriptorType != USB_DESC_INTERFACE) {
@@ -211,7 +174,7 @@ int usbh_desc_fill_filter(const struct usb_desc_header *const desc,
 	return -EINVAL;
 }
 
-const void *usbh_desc_get_next_function(const void *desc, const void *desc_end)
+const void *usbh_desc_get_next_function(const void *const desc)
 {
 	const struct usb_desc_header *head = desc;
 	const struct usb_association_descriptor *const ass_d = desc;
@@ -230,7 +193,7 @@ const void *usbh_desc_get_next_function(const void *desc, const void *desc_end)
 
 	while (true) {
 		/* If already on an Interface Association or Interface, this will skip it */
-		head = usbh_desc_get_next(head, desc_end);
+		head = usbh_desc_get_next(head);
 		if (head == NULL) {
 			break;
 		}
