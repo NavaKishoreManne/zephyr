@@ -1011,10 +1011,14 @@ static int cmd_device_info(const struct shell *sh,
 	print_dev_desc_indent(sh, 0, &udev->dev_desc);
 
 	dhp = udev->cfg_desc;
-	while (dhp != NULL) {
-		/* Print every entry */
-		print_desc(sh, dhp);
-		dhp = usbh_desc_get_next(dhp);
+	if (dhp != NULL) {
+		const void *desc_end = usbh_desc_cfg_end(udev->cfg_desc);
+
+		while (dhp != NULL) {
+			/* Print every entry within wTotalLength */
+			print_desc(sh, dhp);
+			dhp = usbh_desc_get_next(dhp, desc_end);
+		}
 	}
 
 	return 0;
