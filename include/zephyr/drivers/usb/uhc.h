@@ -76,6 +76,12 @@ struct usb_device {
 	sys_dnode_t node;
 	/** An opaque pointer to the host context to which this device belongs */
 	void *ctx;
+	/** Parent hub device, or NULL when attached to the host controller root */
+	struct usb_device *parent;
+	/** 1-based port number on @a parent (or on the root hub when @a parent is NULL) */
+	uint8_t hub_port;
+	/** Number of hub tiers above this device (0 = root tier) */
+	uint8_t depth;
 	/** Device mutex */
 	struct k_mutex mutex;
 	/** USB device descriptor */
@@ -88,6 +94,8 @@ struct usb_device {
 	uint8_t actual_cfg;
 	/** Device address */
 	uint8_t addr;
+	/** xHCI device slot ID (1-based), 0 when not attached to the HCD */
+	uint8_t slot_id;
 	/** Pointer to actual device configuration descriptor */
 	void *cfg_desc;
 	/** Pointers to device interfaces */
@@ -331,6 +339,18 @@ __subsystem struct uhc_driver_api {
 	 * CH9 SET_ADDRESS (@c -ENOTSUP from @ref uhc_assign_address).
 	 */
 	int (*assign_address)(const struct device *dev, struct usb_device *udev, uint8_t *addr_out);
+	/**
+	 * Optional: note @a udev before @ref uhc_bus_reset (xHCI root enumeration).
+	 */
+	int (*prepare_enum)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: enable xHCI slot + Address Device (BSR=1) for a hub child.
+	 */
+	int (*attach_device)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: Disable Slot for one @a udev (hub child disconnect).
+	 */
+	void (*release_device)(const struct device *dev, struct usb_device *udev);
 	/**
 	 * Optional: tear down active device slot/context on disconnect (hc_driver
 	 * free_dev). Called from the host bus thread, not the UHC ISR.
@@ -652,6 +672,58 @@ bool uhc_post_configure_steady(const struct device *dev);
  * @param dev UHC device
  */
 void uhc_free_dev(const struct device *dev);
+
+/**
+ * @brief Optional: bind @a udev before root @ref uhc_bus_reset (xHCI).
+ */
+static inline int uhc_prepare_enum(const struct device *dev, struct usb_device *udev)
+{
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
+	int ret = 0;
+
+	if (api->prepare_enum != NULL) {
+		api->lock(dev);
+		ret = api->prepare_enum(dev, udev);
+		api->unlock(dev);
+	}
+
+	return ret;
+}
+
+/**
+ * @brief Optional: xHCI slot setup for a hub-tier device (no root port reset).
+ */
+static inline int uhc_attach_device(const struct device *dev, struct usb_device *udev)
+{
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
+	int ret;
+
+	if (api->attach_device == NULL) {
+		return -ENOTSUP;
+	}
+
+	api->lock(dev);
+	ret = api->attach_device(dev, udev);
+	api->unlock(dev);
+
+	return ret;
+}
+
+/**
+ * @brief Optional: release one device's xHCI slot on disconnect.
+ */
+static inline void uhc_release_device(const struct device *dev, struct usb_device *udev)
+{
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
+
+	if (api->release_device == NULL) {
+		return;
+	}
+
+	api->lock(dev);
+	api->release_device(dev, udev);
+	api->unlock(dev);
+}
 
 /**
  * @brief Optional: assign USB device address via HCD (xHCI Address Device).
