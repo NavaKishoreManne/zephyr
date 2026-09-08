@@ -120,6 +120,12 @@ static void usbh_class_probe_function(struct usb_device *const udev,
 			continue;
 		}
 
+		if (ret != 0) {
+			LOG_WRN("Class %s probe failed for interface %u (%d)",
+				c_data->name, iface, ret);
+			continue;
+		}
+
 		LOG_INF("Class '%s' matches interface %u", c_data->name, iface);
 		c_node->state = USBH_CLASS_STATE_BOUND;
 		c_data->udev = udev;
@@ -146,9 +152,10 @@ void usbh_class_probe_device(struct usb_device *const udev)
 	usbh_class_probe_function(udev, &filter_data, USBH_CLASS_IFNUM_DEVICE);
 
 	/* To support multi-function devices, match against each function */
+	const void *desc_end = usbh_desc_cfg_end(udev->cfg_desc);
 
 	while (true) {
-		desc = usbh_desc_get_next_function(desc);
+		desc = usbh_desc_get_next_function(desc, desc_end);
 		if (desc == NULL) {
 			break;
 		}
