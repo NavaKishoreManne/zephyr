@@ -8,6 +8,7 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/iterable_sections.h>
 #include <zephyr/usb/usbh.h>
 
@@ -38,40 +39,85 @@ static int usbh_event_carrier(const struct device *dev,
 		err = k_msgq_put(&usbh_bus_msgq, event, K_NO_WAIT);
 	}
 
+	if (err != 0) {
+		LOG_ERR("USB host event queue full (type=%d)", (int)event->type);
+	}
+
 	return err;
 }
+
+/** Root-tier HCD connect: default port 1 until uhc_event carries a port id. */
+#define USBH_ROOT_HUB_PORT 1U
 
 static void dev_connected_handler(struct usbh_context *const ctx,
 				  const struct uhc_event *const event)
 {
+	const char *const tname = k_thread_name_get(k_current_get());
+	struct usb_device *prev;
 	struct usb_device *udev;
+	int init_err;
 
-	udev = usbh_device_alloc(ctx);
+	LOG_DBG("trace: dev_connected thread=%s prio=%d speed_evt=%d",
+		tname != NULL ? tname : "?", k_thread_priority_get(k_current_get()),
+		(int)event->type);
 
+	prev = usbh_device_find_by_port(ctx, NULL, USBH_ROOT_HUB_PORT);
+	if (prev != NULL) {
+		LOG_WRN("Replacing device on root port %u", USBH_ROOT_HUB_PORT);
+		usbh_device_disconnect(prev);
+		uhc_free_dev(ctx->dev);
+	}
+
+	udev = usbh_device_alloc_port(ctx, NULL, USBH_ROOT_HUB_PORT);
 	if (udev == NULL) {
 		LOG_ERR("Failed allocate new device");
+		uhc_free_dev(ctx->dev);
 		return;
 	}
 
+	udev->state = USB_STATE_DEFAULT;
+
 	if (event->type == UHC_EVT_DEV_CONNECTED_HS) {
 		udev->speed = USB_SPEED_SPEED_HS;
+	} else if (event->type == UHC_EVT_DEV_CONNECTED_LS) {
+		udev->speed = USB_SPEED_SPEED_LS;
+	} else if (event->type == UHC_EVT_DEV_CONNECTED_SS) {
+		udev->speed = USB_SPEED_SPEED_SS;
 	} else {
 		udev->speed = USB_SPEED_SPEED_FS;
 	}
 
-	usbh_device_connect(ctx, udev);
+	init_err = usbh_device_init(udev);
+	LOG_DBG("trace: usbh_device_init done err=%d thread=%s udev=%p depth=%u port=%u",
+		init_err, tname != NULL ? tname : "?", (void *)udev, udev->depth,
+		udev->hub_port);
+
+	if (init_err != 0) {
+		LOG_ERR("Failed to enumerate new USB device");
+		usbh_device_disconnect(udev);
+		uhc_free_dev(ctx->dev);
+	}
 }
 
 static void dev_removed_handler(struct usbh_context *const ctx)
 {
-	struct usb_device *udev = NULL;
+	struct usb_device *udev, *tmp;
+	bool removed = false;
 
-	udev = usbh_device_get_root(ctx);
-	if (udev != NULL) {
-		usbh_device_disconnect(ctx, udev);
+	SYS_DLIST_FOR_EACH_CONTAINER_SAFE(&ctx->udevs, udev, tmp, node) {
+		if (udev->parent == NULL) {
+			usbh_device_disconnect(udev);
+			removed = true;
+		}
+	}
+
+	if (removed) {
+		LOG_DBG("Root-tier device removed");
 	} else {
 		LOG_DBG("Spurious device removed event");
 	}
+
+	uhc_free_dev(ctx->dev);
 }
 
 static int discard_ep_request(struct usbh_context *const ctx,
@@ -80,7 +126,7 @@ static int discard_ep_request(struct usbh_context *const ctx,
 	const struct device *dev = ctx->dev;
 
 	if (xfer->buf) {
-		LOG_HEXDUMP_INF(xfer->buf->data, xfer->buf->len, "buf");
+		LOG_HEXDUMP_DBG(xfer->buf->data, xfer->buf->len, "buf");
 		uhc_xfer_buf_free(dev, xfer->buf);
 	}
 
@@ -94,10 +140,9 @@ static ALWAYS_INLINE int usbh_event_handler(struct usbh_context *const ctx,
 
 	switch (event->type) {
 	case UHC_EVT_DEV_CONNECTED_LS:
-		LOG_ERR("Low speed device not supported (connected event)");
-		break;
 	case UHC_EVT_DEV_CONNECTED_FS:
 	case UHC_EVT_DEV_CONNECTED_HS:
+	case UHC_EVT_DEV_CONNECTED_SS:
 		dev_connected_handler(ctx, event);
 		break;
 	case UHC_EVT_DEV_REMOVED:
