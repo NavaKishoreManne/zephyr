@@ -179,6 +179,31 @@ void test_mount(void)
 	zassert_equal(ret, 0, "fs has no unmount functionality can be mounted");
 }
 
+static void test_unmount_path(void)
+{
+	int ret;
+
+	TC_PRINT("\nunmount by path tests:\n");
+
+	ret = fs_unmount_path(NULL);
+	zassert_equal(ret, -EINVAL, "NULL mount point");
+
+	ret = fs_unmount_path("");
+	zassert_equal(ret, -EINVAL, "empty mount point");
+
+	ret = fs_unmount_path("NAND:");
+	zassert_equal(ret, -EINVAL, "mount point without leading slash");
+
+	ret = fs_unmount_path("/UNKNOWN:");
+	zassert_equal(ret, -ENOENT, "unknown mount point");
+
+	ret = fs_unmount_path(TEST_FS_MNTP);
+	zassert_equal(ret, 0, "unmount mounted volume by path");
+
+	ret = fs_mount(&test_fs_mnt_1);
+	zassert_equal(ret, 0, "remount for fs_unmount() tests");
+}
+
 /**
  * @brief Test fs_unmount() interface in file system core
  *
@@ -1097,6 +1122,7 @@ ZTEST(fs_api_register_mount, test_mount_unmount)
 {
 	fs_register(TEST_FS_1, &temp_fs);
 	test_mount();
+	test_unmount_path();
 	test_unmount();
 	fs_unregister(TEST_FS_1, &temp_fs);
 }
