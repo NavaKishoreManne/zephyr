@@ -80,23 +80,6 @@ static int translate_error(int error)
 	return -EIO;
 }
 
-static int translate_disk_error(int error)
-{
-	switch (error) {
-	case RES_OK:
-		return 0;
-	case RES_WRPRT:
-		return -EPERM;
-	case RES_PARERR:
-		return -EINVAL;
-	case RES_NOTRDY:
-	case RES_ERROR:
-		return -EIO;
-	}
-
-	return -EIO;
-}
-
 /* Converts a zephyr path like /SD:/foo into a path digestible by FATFS by stripping the
  * leading slash, i.e. SD:/foo.
  */
@@ -509,8 +492,8 @@ static int fatfs_unmount(struct fs_mount_t *mountp)
 	/* Make direct disk IOCTL call to deinit disk */
 	disk_res = disk_ioctl(((FATFS *)mountp->fs_data)->pdrv, CTRL_POWER, &param);
 	if (disk_res != RES_OK) {
-		LOG_ERR("Could not power off disk (%d)", disk_res);
-		return translate_disk_error(disk_res);
+		/* FAT volume is already unregistered; still report so mount node is removed */
+		LOG_WRN("Could not power off disk (%d) — filesystem detached anyway", disk_res);
 	}
 
 	return 0;

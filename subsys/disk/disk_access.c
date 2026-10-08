@@ -175,16 +175,20 @@ int disk_access_ioctl(const char *pdrv, uint8_t cmd, void *buf)
 				disk->refcnt = 0U;
 				disk->ops->ioctl(disk, cmd, buf);
 				rc = 0;
-			} else if (disk->refcnt == 1U) {
-				rc = disk->ops->ioctl(disk, cmd, buf);
-				if (rc == 0) {
-					disk->refcnt--;
-				}
-			} else if (disk->refcnt > 0) {
-				disk->refcnt--;
+			} else if (disk->refcnt == 0U) {
+				/* Idempotent: nothing to tear down */
 				rc = 0;
 			} else {
-				LOG_WRN("Disk is already deinitialized");
+				/* One logical holder released; driver runs only on last */
+				disk->refcnt--;
+				if (disk->refcnt == 0U) {
+					rc = disk->ops->ioctl(disk, cmd, buf);
+					if (rc != 0) {
+						disk->refcnt++;
+					}
+				} else {
+					rc = 0;
+				}
 			}
 			break;
 		default:
