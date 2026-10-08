@@ -97,12 +97,13 @@ static void hub_log_info(struct usbh_hub_data *const hub_data)
 	struct usb_device *udev = hub_data->udev;
 
 	LOG_INF("=== USB Hub Information ===");
-	LOG_INF("Hub depth: %u", udev->depth);
+	LOG_INF("Hub Level: %d", udev->level);
 	LOG_INF("Vendor ID: 0x%04x", dev_desc->idVendor);
 	LOG_INF("Product ID: 0x%04x", dev_desc->idProduct);
 	LOG_INF("Device Address: %d", udev->addr);
-	if (udev->parent != NULL) {
-		LOG_INF("Parent hub depth: %u, port: %u", udev->parent->depth, udev->hub_port);
+	if (udev->hub) {
+		LOG_INF("Parent Hub Level: %d, Port: %d", udev->hub->level,
+			udev->hub_port);
 	} else {
 		LOG_INF("Root Hub (no parent)");
 	}
@@ -113,7 +114,8 @@ static void hub_recursive_disconnect(struct usbh_hub_data *const hub_data)
 {
 	struct usb_device *port_udev;
 
-	LOG_DBG("Recursively disconnecting hub depth %u and all children", hub_data->udev->depth);
+	LOG_DBG("Recursively disconnecting Hub level %d and all children",
+		hub_data->udev->level);
 
 	for (uint8_t i = 0; i < hub_data->port_count; i++) {
 		hub_data->port_list[i].enum_pending = false;
@@ -128,15 +130,15 @@ static void hub_recursive_disconnect(struct usbh_hub_data *const hub_data)
 static int enumerate_port_device(struct usbh_hub_data *hub_data,
 				 struct usb_hub_port *port_instance,
 				 uint8_t port_num,
-				 struct usb_hub_port_status *port_sts)
+				 struct usb_port_status *port_sts)
 {
 	struct usb_device *udev;
 	uint8_t speed;
 	int ret;
 
-	if ((port_sts->wPortStatus & USB_HUB_PORT_STATUS_HIGH_SPEED) != 0) {
+	if ((port_sts->wPortStatus & USB_PORT_STAT_HIGH_SPEED) != 0) {
 		speed = USB_SPEED_SPEED_HS;
-	} else if ((port_sts->wPortStatus & USB_HUB_PORT_STATUS_LOW_SPEED) != 0) {
+	} else if ((port_sts->wPortStatus & USB_PORT_STAT_LOW_SPEED) != 0) {
 		speed = USB_SPEED_SPEED_LS;
 	} else {
 		speed = USB_SPEED_SPEED_FS;
@@ -154,8 +156,8 @@ static int enumerate_port_device(struct usbh_hub_data *hub_data,
 
 	udev->hub_port = port_num;
 	udev->speed = speed;
-	udev->depth = hub_data->udev->depth + 1U;
-	udev->parent = hub_data->udev;
+	udev->level = hub_data->udev->level + 1;
+	udev->hub = hub_data->udev;
 
 	ret = usbh_device_connect(hub_data->uhs_ctx, udev);
 	if (ret != 0) {
@@ -173,7 +175,7 @@ static int enumerate_port_device(struct usbh_hub_data *hub_data,
 static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 				   struct usb_hub_port *const port_instance)
 {
-	struct usb_hub_port_status port_sts;
+	struct usb_port_status port_sts;
 	struct usb_device *udev;
 	const uint8_t port_num = port_instance->num;
 	uint16_t port_status;
@@ -192,7 +194,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 	LOG_DBG("Port %d status: wPortStatus=0x%04x, wPortChange=0x%04x",
 		port_num, port_sts.wPortStatus, port_sts.wPortChange);
 
-	if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_CONNECTION) != 0) {
+	if ((port_sts.wPortChange & USB_PORT_STAT_C_CONNECTION) != 0) {
 		ret = usbh_req_clear_hcfs_c_port_connection(hub_data->udev, port_num);
 		if (ret != 0) {
 			LOG_ERR("Failed to clear port connection change: %d", ret);
@@ -210,14 +212,14 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 		port_sts.wPortChange = port_change;
 	}
 
-	if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_ENABLE) != 0) {
+	if ((port_sts.wPortChange & USB_PORT_STAT_C_ENABLE) != 0) {
 		ret = usbh_req_clear_hcfs_c_port_enable(hub_data->udev, port_num);
 		if (ret != 0) {
 			LOG_ERR("Failed to clear enable change: %d", ret);
 		}
 	}
 
-	if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_SUSPEND) != 0) {
+	if ((port_sts.wPortChange & USB_PORT_STAT_C_SUSPEND) != 0) {
 		LOG_DBG("Port %d suspend change detected", port_num);
 		ret = usbh_req_clear_hcfs_c_port_suspend(hub_data->udev, port_num);
 		if (ret != 0) {
@@ -225,7 +227,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 		}
 	}
 
-	if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_RESET) != 0) {
+	if ((port_sts.wPortChange & USB_PORT_STAT_C_RESET) != 0) {
 		LOG_DBG("Port %d reset change detected", port_num);
 		ret = usbh_req_clear_hcfs_c_port_reset(hub_data->udev, port_num);
 		if (ret != 0) {
@@ -233,7 +235,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 		}
 	}
 
-	if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_OVER_CURRENT) != 0) {
+	if ((port_sts.wPortChange & USB_PORT_STAT_C_OVERCURRENT) != 0) {
 		LOG_WRN("Port %d over-current detected", port_num);
 		ret = usbh_req_clear_hcfs_c_port_over_current(hub_data->udev, port_num);
 		if (ret != 0) {
@@ -244,7 +246,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 		return;
 	}
 
-	if ((port_sts.wPortStatus & USB_HUB_PORT_STATUS_CONNECTION) == 0) {
+	if ((port_sts.wPortStatus & USB_PORT_STAT_CONNECTION) == 0) {
 		LOG_DBG("Port %d disconnected", port_num);
 		if (port_instance->udev != NULL) {
 			udev = port_instance->udev;
@@ -257,7 +259,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 	}
 
 	if (port_instance->udev != NULL &&
-	    (port_sts.wPortStatus & USB_HUB_PORT_STATUS_ENABLE) != 0) {
+	    (port_sts.wPortStatus & USB_PORT_STAT_ENABLE) != 0) {
 		LOG_DBG("Port %d device still active", port_num);
 		port_instance->state = PORT_STATE_ENABLED;
 		port_instance->enum_pending = false;
@@ -279,7 +281,7 @@ static void hub_port_handle_change(struct usbh_hub_data *const hub_data,
 static void hub_port_process(struct usbh_hub_data *const hub_data,
 			     struct usb_hub_port *const port_instance)
 {
-	struct usb_hub_port_status port_sts;
+	struct usb_port_status port_sts;
 	struct usb_device *udev;
 	const uint8_t port_num = port_instance->num;
 	uint16_t port_status;
@@ -320,7 +322,7 @@ static void hub_port_process(struct usbh_hub_data *const hub_data,
 			port_sts.wPortStatus = port_status;
 			port_sts.wPortChange = port_change;
 
-			if ((port_sts.wPortChange & USB_HUB_PORT_CHANGE_RESET) == 0) {
+			if ((port_sts.wPortChange & USB_PORT_STAT_C_RESET) == 0) {
 				if (port_instance->reset_count > 0) {
 					LOG_WRN("Port %d reset timeout, retrying (%d left)",
 						port_num, port_instance->reset_count);
@@ -353,13 +355,13 @@ static void hub_port_process(struct usbh_hub_data *const hub_data,
 			port_sts.wPortStatus = port_status;
 			port_sts.wPortChange = port_change;
 
-			if ((port_sts.wPortStatus & USB_HUB_PORT_STATUS_CONNECTION) == 0) {
+			if ((port_sts.wPortStatus & USB_PORT_STAT_CONNECTION) == 0) {
 				LOG_WRN("Port %d device disconnected during reset", port_num);
 				port_instance->state = PORT_STATE_DISCONNECTED;
 				return;
 			}
 
-			if ((port_sts.wPortStatus & USB_HUB_PORT_STATUS_ENABLE) == 0) {
+			if ((port_sts.wPortStatus & USB_PORT_STAT_ENABLE) == 0) {
 				LOG_WRN("Port %d not enabled after reset", port_num);
 
 				if (port_instance->reset_count > 0) {
@@ -422,7 +424,7 @@ error_recovery:
 
 		ret = usbh_req_get_port_status(hub_data->udev, port_num,
 					       &port_status, &port_change);
-		if (ret != 0 || (port_status & USB_HUB_PORT_STATUS_CONNECTION) == 0) {
+		if (ret != 0 || (port_status & USB_PORT_STAT_CONNECTION) == 0) {
 			port_instance->state = PORT_STATE_DISCONNECTED;
 			return;
 		}
@@ -458,9 +460,10 @@ static void hub_process_data(struct usbh_hub_data *const hub_data)
 		}
 
 		if (port_index != 0) {
-			LOG_DBG("Hub depth %u port %u status changed, starting processing",
-				hub_data->udev->depth, port_index);
-			hub_port_handle_change(hub_data, &hub_data->port_list[port_index - 1]);
+			LOG_DBG("Hub level %d port %d status changed, starting processing",
+				hub_data->udev->level, port_index);
+			hub_port_handle_change(hub_data,
+					       &hub_data->port_list[port_index - 1]);
 		} else {
 			hub_changed = true;
 		}
@@ -469,7 +472,7 @@ static void hub_process_data(struct usbh_hub_data *const hub_data)
 	memset(hub_data->int_buffer, 0, sizeof(hub_data->int_buffer));
 
 	if (hub_changed) {
-		LOG_INF("Hub depth %u status changed, processing", hub_data->udev->depth);
+		LOG_INF("Hub level %d status changed, processing", hub_data->udev->level);
 		ret = usbh_req_get_hub_status(hub_data->udev, &hub_status, &hub_change);
 
 		if (!hub_data->connected || hub_data->state != HUB_STATE_OPERATIONAL) {
@@ -549,13 +552,14 @@ static int hub_interrupt_in_cb(struct usb_device *const udev,
 	}
 
 	if (xfer->err != 0 || buf == NULL || buf->len == 0) {
-		LOG_WRN("Hub depth %u interrupt transfer failed (err=%d)", hub_data->udev->depth,
-			xfer->err);
+		LOG_WRN("Hub level %d interrupt transfer failed (err=%d)",
+			hub_data->udev->level, xfer->err);
 	} else {
 		memcpy(hub_data->int_buffer, buf->data,
 		       MIN(buf->len, sizeof(hub_data->int_buffer)));
 
-		LOG_DBG("Hub depth %u interrupt data received: length=%d", hub_data->udev->depth,
+		LOG_DBG("Hub level %d interrupt data received: length=%d",
+			hub_data->udev->level,
 			buf->len);
 	}
 
@@ -697,8 +701,9 @@ static int usbh_hub_probe(struct usbh_class_data *const c_data,
 	const void *desc_end;
 	uint8_t target_iface;
 
-	if ((udev->depth + 1U) > CONFIG_USBH_HUB_MAX_LEVELS) {
-		LOG_ERR("Hub chain depth limit exceeded (%u > %d)", udev->depth + 1U,
+	if (udev->level > CONFIG_USBH_HUB_MAX_LEVELS) {
+		LOG_ERR("Hub chain depth limit exceeded (%d > %d)",
+			udev->level,
 			CONFIG_USBH_HUB_MAX_LEVELS);
 		return -ENOSPC;
 	}
@@ -719,7 +724,9 @@ static int usbh_hub_probe(struct usbh_class_data *const c_data,
 	}
 
 	/* Get the start of next function as the end of current function */
-	desc_end = usbh_desc_get_next_function(desc_start);
+	const void *cfg_end = usbh_desc_cfg_end(udev->cfg_desc);
+
+	desc_end = usbh_desc_get_next_function(desc_start, cfg_end);
 
 	hub_data = c_data->priv;
 	memset(hub_data, 0, sizeof(*hub_data));
@@ -749,7 +756,7 @@ static int usbh_hub_probe(struct usbh_class_data *const c_data,
 			}
 		}
 
-		header = usbh_desc_get_next(header);
+		header = usbh_desc_get_next(header, cfg_end);
 	}
 
 	hub_data->connected = true;
@@ -768,12 +775,12 @@ static int usbh_hub_removed(struct usbh_class_data *const cdata)
 	struct k_work_sync sync;
 	uint16_t vendor_id;
 	uint16_t product_id;
-	uint8_t depth;
+	uint8_t level;
 	int ret;
 
 	hub_data = cdata->priv;
 
-	depth = hub_data->udev->depth;
+	level = hub_data->udev->level;
 	vendor_id = hub_data->udev->dev_desc.idVendor;
 	product_id = hub_data->udev->dev_desc.idProduct;
 
@@ -798,8 +805,8 @@ static int usbh_hub_removed(struct usbh_class_data *const cdata)
 		LOG_DBG("Interrupt transfer cancelled");
 	}
 
-	LOG_INF("Hub (depth %u, Vendor ID: 0x%04x, Product ID: 0x%04x) removal completed", depth,
-		vendor_id, product_id);
+	LOG_INF("Hub (level %d, Vendor ID: 0x%04x, Product ID: 0x%04x) removal completed",
+		level, vendor_id, product_id);
 
 	return 0;
 }
@@ -815,21 +822,21 @@ static struct usbh_class_filter hub_filters[] = {
 		.flags = USBH_CLASS_MATCH_CODE_TRIPLE,
 		.class = USB_HUB_CLASS_CODE,
 		.sub = USB_HUB_SUBCLASS_CODE,
-		.proto = USB_HUB_PROTOCOL_FS,
+		.proto = USB_HUB_PR_FS,
 	},
 	{
 		/* HS hub with single TT: proto only meaningful in the interface descriptor */
 		.flags = USBH_CLASS_MATCH_CODE_TRIPLE,
 		.class = USB_HUB_CLASS_CODE,
 		.sub = USB_HUB_SUBCLASS_CODE,
-		.proto = USB_HUB_PROTOCOL_HS_SINGLE_TT,
+		.proto = USB_HUB_PR_HS_SINGLE_TT,
 	},
 	{
 		/* HS hub with multiple TTs: proto only meaningful in the interface descriptor */
 		.flags = USBH_CLASS_MATCH_CODE_TRIPLE,
 		.class = USB_HUB_CLASS_CODE,
 		.sub = USB_HUB_SUBCLASS_CODE,
-		.proto = USB_HUB_PROTOCOL_HS_MULTI_TT,
+		.proto = USB_HUB_PR_HS_MULTI_TT,
 	},
 	{0},
 };

@@ -84,21 +84,14 @@ struct usb_host_ep {
 /**
  * @brief Host representation of a USB device
  *
- * Hub topology (@a parent, @a hub_port, @a depth) and @a slot_id are populated
- * by the host stack and HCD during enumeration. Existing UDC-only users ignore
- * these fields (zero-initialized or partial init).
+ * Hub topology (@a hub, @a hub_port, @a level) and @a slot_id are populated
+ * by the host stack and HCD during enumeration.
  */
 struct usb_device {
 	/** dlist node */
 	sys_dnode_t node;
 	/** An opaque pointer to the host context to which this device belongs */
 	void *ctx;
-	/** Parent hub device, or NULL when attached to the host controller root */
-	struct usb_device *parent;
-	/** 1-based downstream port on @a parent; host root port index when @a parent is NULL */
-	uint8_t hub_port;
-	/** Number of hub tiers above this device (0 = root tier) */
-	uint8_t depth;
 	/** Device mutex */
 	struct k_mutex mutex;
 	/** USB device descriptor */
@@ -121,8 +114,14 @@ struct usb_device {
 	struct usb_host_ep ep_out[16];
 	/** Pointers to device IN endpoints */
 	struct usb_host_ep ep_in[16];
+	/** Pointer to the hub to which this device is connected */
+	struct usb_device *hub;
 	/** Hub think time (USB 2.0 wHubCharacteristics); hub devices only */
 	uint16_t tt;
+	/** Device's hub port (1-based); root port index when @a hub is NULL */
+	uint8_t hub_port;
+	/** Device's level (root device = 1) */
+	uint8_t level;
 };
 
 /**
