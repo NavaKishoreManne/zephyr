@@ -90,14 +90,34 @@ static int scsi_test_unit_ready_retry(struct scsi_device *sdev)
 	return -EAGAIN;
 }
 
+/** Linux sd MODE SENSE(6) allocation for write-protect (page 0x3f). */
+#define SCSI_MS6_WP_ALLOC_LEN 192U
+
 static int scsi_probe_write_protected(struct scsi_device *sdev)
 {
-	uint8_t ms[4];
+	uint8_t ms[SCSI_MS6_WP_ALLOC_LEN];
+	uint8_t md_len;
 	int ret;
 
-	ret = scsi_mode_sense_6_params(sdev, ms, sizeof(ms), 0U, 0U, 0U, true);
+	if (!IS_ENABLED(CONFIG_SCSI_WRITE_PROTECT_DETECT)) {
+		return 0;
+	}
+
+	/*
+	 * Match Linux usb-storage / sd: MODE SENSE(6), page 0x3f, DBD=0,
+	 * allocation length 192. Short 4-byte / page-0 + DBD probes often
+	 * STALL on consumer USB sticks (SanDisk, etc.).
+	 */
+	ret = scsi_mode_sense_6_params(sdev, ms, sizeof(ms), 0U, 0x3fU, 0U, false);
 	if (ret != 0) {
-		LOG_DBG("MODE SENSE(6) unavailable (%d), write protection unknown", ret);
+		LOG_DBG("MODE SENSE(6) unavailable (%d), assuming writable", ret);
+		return 0;
+	}
+
+	md_len = ms[0];
+	if (md_len < 2U) {
+		LOG_DBG("MODE SENSE(6) header too short (%u), assuming writable",
+			(unsigned int)md_len);
 		return 0;
 	}
 
@@ -601,14 +621,15 @@ int scsi_synchronize_cache_10(struct scsi_device *sdev)
 			return 0;
 		}
 
-		if (last_ret != -EIO && last_ret != -EAGAIN) {
-			return last_ret;
-		}
-
 		if (i + 1 < CONFIG_SCSI_SYNC_CACHE_RETRY_COUNT) {
 			(void)scsi_test_unit_ready(sdev);
 			k_msleep(CONFIG_SCSI_SYNC_CACHE_RETRY_DELAY_MS);
 		}
+	}
+
+	if (IS_ENABLED(CONFIG_SCSI_SYNC_CACHE_BEST_EFFORT)) {
+		LOG_DBG("SYNCHRONIZE CACHE(10) failed (%d), assuming media flushed", last_ret);
+		return 0;
 	}
 
 	return last_ret;

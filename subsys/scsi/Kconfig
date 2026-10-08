@@ -40,6 +40,29 @@ config SCSI_SYNC_CACHE_RETRY_DELAY_MS
 	help
 	  Milliseconds to wait between SYNCHRONIZE CACHE retries.
 
+config SCSI_SYNC_CACHE_BEST_EFFORT
+	bool "Treat SYNCHRONIZE CACHE failure as success"
+	default y
+	help
+	  Many USB thumb drives STALL or return CSW PHASE_ERR / CHECK
+	  CONDITION for SYNCHRONIZE CACHE(10) even when writes already
+	  reached the medium. When enabled, scsi_synchronize_cache_10()
+	  returns success after retries are exhausted so FatFs fs_sync()
+	  and ``msc write`` complete without spurious I/O errors.
+
+config SCSI_WRITE_PROTECT_DETECT
+	bool "Probe write protect with MODE SENSE(6) during device probe"
+	default n
+	help
+	  When enabled, scsi_device_probe() issues MODE SENSE(6) (page 0x3f,
+	  192-byte allocation) to read the device-specific write-protect bit.
+	  Matches the allocation Linux sd uses for USB mass-storage.
+
+	  Many USB thumb drives mishandle short or non-standard MODE SENSE
+	  requests (stall, phase error). Leave this disabled unless you need
+	  write-protect reporting; the device is then assumed writable (same
+	  as Linux usb-storage without CONFIG_USB_STORAGE_RW_DETECT).
+
 # Define the SCSI subsystem as a module
 module = SCSI
 module-str = scsi
