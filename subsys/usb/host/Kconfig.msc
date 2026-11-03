@@ -74,12 +74,13 @@ config USBH_MSC_DISK_ATTACH_ALL_LUNS
 	  the device.
 
 config USBH_MSC_DISK_PARTITION
-	bool "Discover FAT/exFAT partition before registering LUN0"
+	bool "Scan partition layout before registering MSC volume"
+	select SCSI_DISK_PARTITION
 	default y
 	help
-	  Run scsi_partition_find_fat_volume() before scsi_disk_register(). When
-	  no FAT volume is found the full LUN is still registered (whole-disk
-	  fallback).
+	  Call scsi_partition_walk() before scsi_disk_register(). When a table
+	  is present, the first entry is exposed (integration policy); when no
+	  table is found the full LUN is registered (lba_offset 0, sector_count 0).
 
 endif # USBH_MSC_DISK
 

@@ -15,6 +15,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/disk/scsi_partition.h>
+#include <zephyr/storage/disk_partition.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net_buf.h>
 #include <zephyr/scsi/scsi.h>
@@ -423,6 +424,24 @@ static int usb_msc_disk_assign_volume_name(struct usb_device *udev, uint8_t lun_
 	return -ENOSPC;
 }
 
+static bool usb_msc_slice_within_lun(const struct scsi_device *sdev, uint64_t start_lba,
+				     uint64_t nr_sectors)
+{
+	if (sdev == NULL || sdev->block_count == 0U) {
+		return false;
+	}
+
+	if (start_lba >= sdev->block_count) {
+		return false;
+	}
+
+	if (nr_sectors == 0U) {
+		return true;
+	}
+
+	return start_lba + nr_sectors <= sdev->block_count;
+}
+
 static void usb_msc_disk_log_ready(const struct usb_msc_lun *lun, const char *disk_name)
 {
 	const uint64_t sectors =
@@ -468,11 +487,39 @@ int usb_msc_disk_attach(struct usb_msc_lun *lun, const struct device *uhc, struc
 	}
 
 #if IS_ENABLED(CONFIG_USBH_MSC_DISK_PARTITION)
-	ret = scsi_partition_find_fat_volume(&lun->sdev, &lba_offset, &sector_count);
-	if (ret != 0) {
-		LOG_WRN("usb_msc_disk: no FAT/exFAT volume on LUN%u — exposing full LUN", lun_id);
-		lba_offset = 0U;
-		sector_count = 0U;
+	{
+		struct disk_partition_table table;
+
+		ret = scsi_partition_walk(&lun->sdev, &table);
+		if (ret != 0) {
+			LOG_WRN("usb_msc_disk: partition walk err=%d on LUN%u — full LUN", ret,
+				lun_id);
+			lba_offset = 0U;
+			sector_count = 0U;
+		} else if (table.entry_count == 0U) {
+			lba_offset = 0U;
+			sector_count = 0U;
+		} else {
+			const struct disk_partition_entry *ent = NULL;
+
+			for (uint8_t i = 0U; i < table.entry_count; i++) {
+				if (usb_msc_slice_within_lun(&lun->sdev, table.entries[i].start_lba,
+							     table.entries[i].nr_sectors)) {
+					ent = &table.entries[i];
+					break;
+				}
+			}
+
+			if (ent == NULL) {
+				LOG_WRN("usb_msc_disk: no in-range partition on LUN%u — full LUN",
+					lun_id);
+				lba_offset = 0U;
+				sector_count = 0U;
+			} else {
+				lba_offset = ent->start_lba;
+				sector_count = ent->nr_sectors;
+			}
+		}
 	}
 #endif
 
