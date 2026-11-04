@@ -7,10 +7,18 @@ menuconfig DISK_ACCESS
 	help
 	  Enable disk access over a supported media backend like FLASH or RAM
 
-if DISK_ACCESS
+config DISK_PARTITION
+	bool "MBR/GPT partition table parsing"
+	help
+	  Transport-neutral layout scan (@ref disk_partition_walk): MBR, extended
+	  logical partitions, and GPT. Does not identify filesystem types or
+	  select mount targets. Enable when a block backend or adapter needs
+	  partition descriptors from a sector read callback.
+
+if DISK_ACCESS || DISK_PARTITION
 
 module = DISK
 module-str = disk
 source "subsys/logging/Kconfig.template.log_config"
 
-endif # DISK_ACCESS
+endif
