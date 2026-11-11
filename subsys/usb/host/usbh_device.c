@@ -851,9 +851,8 @@ static int usbh_device_set_configuration_locked(struct usb_device *const udev, c
 	 * endpoints (Configure Endpoint, bandwidth). Host stack has filled
 	 * udev->ifaces[] and ep_in/ep_out[] with alternate 0 endpoints.
 	 */
-	LOG_INF("usbh: HCD device_configured - cfg=%u addr=%u speed=%u (xHCI Configure Endpoint "
-		"next)",
-		num, udev->addr, (unsigned int)udev->speed);
+	LOG_INF("usbh: HCD commit endpoints - cfg=%u addr=%u speed=%u", num, udev->addr,
+		(unsigned int)udev->speed);
 	err = uhc_add_endpoints(((struct usbh_context *)udev->ctx)->dev, udev);
 	if (err) {
 		LOG_ERR("HCD add_endpoints failed: %d", err);

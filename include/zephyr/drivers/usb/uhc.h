@@ -84,8 +84,9 @@ struct usb_host_ep {
 /**
  * @brief Host representation of a USB device
  *
- * Hub topology (@a hub, @a hub_port, @a level) and @a slot_id are populated
- * by the host stack and HCD during enumeration.
+ * Hub topology (@a hub, @a hub_port, @a level) is populated by the host stack.
+ * @a slot_id is written only by the HCD as an opaque per-device controller
+ * binding (used for detach on disconnect); host core must not interpret it.
  */
 struct usb_device {
 	/** dlist node */
@@ -104,7 +105,7 @@ struct usb_device {
 	uint8_t actual_cfg;
 	/** Device address */
 	uint8_t addr;
-	/** Host controller device slot (e.g. xHCI slot ID); 0 when unassigned */
+	/** HCD opaque device binding; 0 until the controller claims @a udev */
 	uint8_t slot_id;
 	/** Pointer to actual device configuration descriptor */
 	void *cfg_desc;
@@ -342,41 +343,50 @@ __subsystem struct uhc_driver_api {
 	int (*ep_dequeue)(const struct device *dev,
 			  struct uhc_transfer *const xfer);
 	/**
-	 * Optional: program endpoint contexts after SET_CONFIGURATION (hc_driver
-	 * bandwidth / endpoint setup). NULL is a no-op success.
+	 * Optional: commit configured endpoints after SET_CONFIGURATION.
+	 *
+	 * Host stack has populated @a udev endpoint descriptors; the HCD programs
+	 * hardware for bulk/control/interrupt use. NULL is success (no-op).
 	 */
 	int (*add_endpoints)(const struct device *dev, struct usb_device *udev);
 
 	/*
-	 * Optional endpoint recovery and diagnostics (integrated xHCI HCDs).
+	 * Optional class recovery hooks (e.g. after CLEAR_FEATURE HALT).
 	 * NULL => no-op / success where documented on the wrappers below.
 	 */
 	int (*eps_verify_steady)(const struct device *dev, struct usb_device *udev);
 	int (*ep_sync_after_clear_feature)(const struct device *dev, struct usb_device *udev);
-	bool (*post_configure_steady)(const struct device *dev);
 	/**
-	 * Optional: assign a USB device address (xHCI Address Device BSR=0).
+	 * Optional: report whether @a udev endpoint programming is stable after
+	 * add_endpoints(). NULL treats the device as steady.
+	 */
+	bool (*post_configure_steady)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: assign the USB wire address via the controller.
 	 *
-	 * Integrated xHCI host controllers select the wire address; the chosen
-	 * value is written to @a addr_out. NULL means the host stack must use
-	 * CH9 SET_ADDRESS (@c -ENOTSUP from @ref uhc_assign_address).
+	 * On success, writes the address to @a addr_out. NULL means the host stack
+	 * uses Chapter 9 SET_ADDRESS (@c -ENOTSUP from @ref uhc_assign_address).
 	 */
 	int (*assign_address)(const struct device *dev, struct usb_device *udev, uint8_t *addr_out);
 	/**
-	 * Optional: note @a udev before @ref uhc_bus_reset (xHCI root enumeration).
+	 * Optional: associate @a udev with the next root @ref uhc_bus_reset.
 	 */
 	int (*prepare_enum)(const struct device *dev, struct usb_device *udev);
 	/**
-	 * Optional: enable xHCI slot + Address Device (BSR=1) for a hub child.
+	 * Optional: attach a hub-tier child without a root bus reset.
+	 *
+	 * Hub class has already reset the downstream port; the HCD establishes
+	 * controller-side device state for @a udev.
 	 */
 	int (*attach_device)(const struct device *dev, struct usb_device *udev);
 	/**
-	 * Optional: Disable Slot for one @a udev (hub child disconnect).
+	 * Optional: release controller resources for one @a udev (disconnect).
 	 */
 	void (*release_device)(const struct device *dev, struct usb_device *udev);
 	/**
-	 * Optional: tear down active device slot/context on disconnect (hc_driver
-	 * free_dev). Called from the host bus thread, not the UHC ISR.
+	 * Optional: controller-wide device teardown (shutdown / error recovery).
+	 *
+	 * Not used for normal single-device disconnect; see release_device.
 	 */
 	void (*free_dev)(const struct device *dev);
 };
@@ -674,8 +684,8 @@ int uhc_shutdown(const struct device *dev);
  * @brief Notify UHC after SET_CONFIGURATION (descriptor tree parsed)
  *
  * Invoked when the host stack has read the full configuration descriptor and
- * walked interfaces and endpoint descriptors. HCDs program non-EP0 endpoint
- * contexts here (xHCI Configure Endpoint - hc_driver add_endpoints).
+ * walked interfaces and endpoint descriptors. The HCD commits endpoint
+ * programming for @a udev (optional @c add_endpoints hook).
  *
  * @param dev  UHC device
  * @param udev USB device with ep_in/ep_out and ifaces populated
@@ -713,19 +723,20 @@ int uhc_eps_verify_steady(const struct device *dev, struct usb_device *udev);
 int uhc_ep_sync_after_clear_feature(const struct device *dev, struct usb_device *udev);
 
 /**
- * @brief Optional: query whether the HCD is steady since add_endpoints().
+ * @brief Optional: query whether @a udev is steady since add_endpoints().
  *
  * @param dev UHC device
+ * @param udev USB device that completed configuration
  *
- * @retval true Hook is unset or reports steady state
- * @retval false @a dev is NULL or the controller is not initialized
+ * @retval true Hook is unset, reports steady state, or @a udev is steady
+ * @retval false Invalid arguments or controller not initialized
  */
-bool uhc_post_configure_steady(const struct device *dev);
+bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev);
 
 /**
- * @brief Optional: HCD cleanup after device disconnect (free_dev).
+ * @brief Optional: controller-wide HCD device teardown (@c free_dev hook).
  *
- * Invokes the driver @c free_dev hook when the controller is initialized.
+ * For normal disconnect the host stack uses @ref uhc_release_device instead.
  * No-op when @a dev is NULL, the hook is unset, or the controller is not
  * initialized.
  *
@@ -734,7 +745,7 @@ bool uhc_post_configure_steady(const struct device *dev);
 void uhc_free_dev(const struct device *dev);
 
 /**
- * @brief Optional: bind @a udev before root @ref uhc_bus_reset (xHCI).
+ * @brief Optional: bind @a udev before root @ref uhc_bus_reset.
  *
  * @param dev UHC device
  * @param udev USB device
@@ -767,7 +778,7 @@ static inline int uhc_prepare_enum(const struct device *dev, struct usb_device *
 }
 
 /**
- * @brief Optional: xHCI slot setup for a hub-tier device (no root port reset).
+ * @brief Optional: hub-tier child attach (no root port reset).
  *
  * @param dev UHC device
  * @param udev USB device
@@ -803,7 +814,7 @@ static inline int uhc_attach_device(const struct device *dev, struct usb_device 
 }
 
 /**
- * @brief Optional: release one device's xHCI slot on disconnect.
+ * @brief Optional: release one device from the controller on disconnect.
  *
  * Invokes the driver @c release_device hook when the controller is initialized.
  * No-op when @a dev or @a udev is NULL, the hook is unset, or the controller
@@ -836,10 +847,10 @@ static inline void uhc_release_device(const struct device *dev, struct usb_devic
 }
 
 /**
- * @brief Optional: assign USB device address via HCD (xHCI Address Device).
+ * @brief Optional: assign USB device address via the HCD.
  *
- * When implemented, the HCD runs address assignment (xHCI Address Device with
- * BSR=0) and returns the wire address in @a addr_out. When the hook is unset,
+ * When implemented, the HCD selects the wire address and returns it in
+ * @a addr_out. When the hook is unset,
  * returns @c -ENOTSUP so the host stack may use CH9 SET_ADDRESS instead.
  *
  * @param dev UHC device

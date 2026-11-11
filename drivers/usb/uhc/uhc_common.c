@@ -482,12 +482,12 @@ out_sync:
 	return ret;
 }
 
-bool uhc_post_configure_steady(const struct device *dev)
+bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev)
 {
 	const struct uhc_driver_api *api;
 	bool steady;
 
-	if (dev == NULL) {
+	if (dev == NULL || udev == NULL) {
 		return false;
 	}
 
@@ -504,7 +504,7 @@ bool uhc_post_configure_steady(const struct device *dev)
 		goto out_steady;
 	}
 
-	steady = api->post_configure_steady(dev);
+	steady = api->post_configure_steady(dev, udev);
 
 out_steady:
 	api->unlock(dev);

@@ -78,7 +78,7 @@ int main(void)
 		return 1;
 	}
 
-	if (!uhc_post_configure_steady(uhc)) {
+	if (!uhc_post_configure_steady(uhc, &udev)) {
 		printk("uhc_post_configure_steady unexpected\n");
 		return 1;
 	}

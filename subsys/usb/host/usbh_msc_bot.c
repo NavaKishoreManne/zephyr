@@ -114,7 +114,7 @@ static int msc_bulk_in_cb(struct usb_device *const udev, struct uhc_transfer *co
  * ENDPOINT_HALT on the stalled bulk-IN endpoint, then optional UHC bulk ring sync.
  *
  * BOT / MSC class: CSW-phase STALL is non-fatal; clear HALT then retry STATUS once.
- * Integrated DWC3+xHCI needs @ref usbh_ep_sync_after_clear_feature after HALT clear
+ * Some HCDs need @ref usbh_ep_sync_after_clear_feature after HALT clear
  * (same pattern as @ref usbh_msc_bot_reset); the HCD must not Reset EP before this runs.
  */
 static int msc_bot_recover_bulk_in_protocol_stall(struct usb_device *udev, uint8_t ep_in,

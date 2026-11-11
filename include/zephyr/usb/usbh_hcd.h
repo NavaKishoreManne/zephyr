@@ -57,12 +57,12 @@ int usbh_ep_sync_after_clear_feature(struct usb_device *udev);
 int usbh_eps_verify_steady(struct usb_device *udev);
 
 /**
- * @brief Query HCD post-configure steady state.
+ * @brief Query whether endpoint programming is steady for @a udev.
  *
  * @param udev USB device that completed configuration.
  *
- * @retval true Post-configure steady state reached.
- * @retval false Not steady or hook not implemented.
+ * @retval true Steady, or the HCD has no hook (assumed steady).
+ * @retval false Not steady, disconnected, or invalid argument.
  */
 bool usbh_post_configure_steady(const struct usb_device *udev);
 

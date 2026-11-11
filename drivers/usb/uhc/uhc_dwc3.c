@@ -1400,21 +1400,21 @@ static int dwc3_eps_verify_steady_cb(const struct device *dev, struct usb_device
 	return xhci_dwc3_bulk_output_eps_steady(priv, udev);
 }
 
-static bool dwc3_post_configure_steady_cb(const struct device *dev)
+static bool dwc3_post_configure_steady_cb(const struct device *dev, struct usb_device *udev)
 {
 	struct uhc_dwc3_data *priv = uhc_get_private(dev);
+	struct xhci_dev_slot *slot;
 
-	if (!uhc_is_enabled(dev)) {
+	if (!uhc_is_enabled(dev) || udev == NULL || udev->slot_id == 0U) {
 		return false;
 	}
 
-	for (uint8_t sid = 1U; sid <= XHCI_MAX_DEVSLOTS; sid++) {
-		if (priv->slots[sid].active && priv->slots[sid].steady_after_configure_ep) {
-			return true;
-		}
+	slot = xhci_slot_udev(priv, udev);
+	if (slot == NULL || !slot->active) {
+		return false;
 	}
 
-	return false;
+	return slot->steady_after_configure_ep;
 }
 
 static int uhc_dwc3_prepare_enum(const struct device *dev, struct usb_device *udev)

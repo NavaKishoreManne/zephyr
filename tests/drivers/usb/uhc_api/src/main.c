@@ -63,7 +63,7 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 	zassert_ok(uhc_add_endpoints(uhc, &udev));
 	zassert_ok(uhc_eps_verify_steady(uhc, &udev));
 	zassert_ok(uhc_ep_sync_after_clear_feature(uhc, &udev));
-	zassert_true(uhc_post_configure_steady(uhc));
+	zassert_true(uhc_post_configure_steady(uhc, &udev));
 	zassert_ok(uhc_prepare_enum(uhc, &udev));
 	zassert_equal(uhc_attach_device(uhc, &udev), -ENOTSUP);
 	zassert_equal(uhc_assign_address(uhc, &udev, &addr), -ENOTSUP);

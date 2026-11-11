@@ -25,5 +25,5 @@ bool usbh_post_configure_steady(const struct usb_device *udev)
 {
 	const struct device *hcd = usbh_hcd_dev(udev);
 
-	return uhc_post_configure_steady(hcd);
+	return uhc_post_configure_steady(hcd, (struct usb_device *)udev);
 }
