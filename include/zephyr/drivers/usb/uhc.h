@@ -362,6 +362,25 @@ __subsystem struct uhc_driver_api {
 	 */
 	bool (*post_configure_steady)(const struct device *dev, struct usb_device *udev);
 	/**
+	 * Optional: allocate controller resources for @a udev.
+	 *
+	 * Root devices: called before @ref uhc_bus_reset. Hub-tier children:
+	 * called after hub port reset. NULL is success.
+	 */
+	int (*device_alloc)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: perform controller-managed USB addressing.
+	 *
+	 * On success writes the wire address to @a assigned_addr. NULL returns
+	 * @c -ENOTSUP.
+	 */
+	int (*device_address)(const struct device *dev, struct usb_device *udev,
+			      uint8_t *assigned_addr);
+	/**
+	 * Optional: release controller resources for @a udev (disconnect).
+	 */
+	int (*device_free)(const struct device *dev, struct usb_device *udev);
+	/**
 	 * Optional: assign the USB wire address via the controller.
 	 *
 	 * On success, writes the address to @a addr_out. NULL means the host stack
@@ -732,6 +751,24 @@ int uhc_ep_sync_after_clear_feature(const struct device *dev, struct usb_device 
  * @retval false Invalid arguments or controller not initialized
  */
 bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev);
+
+/**
+ * @brief Optional: allocate HCD resources for @a udev.
+ */
+int uhc_device_alloc(const struct device *dev, struct usb_device *udev);
+
+/**
+ * @brief Optional: controller-managed USB device addressing.
+ *
+ * @retval 0 Address assigned in @a assigned_addr
+ * @retval -ENOTSUP Use Chapter 9 SET_ADDRESS
+ */
+int uhc_device_address(const struct device *dev, struct usb_device *udev, uint8_t *assigned_addr);
+
+/**
+ * @brief Release HCD resources for @a udev on disconnect.
+ */
+int uhc_device_free(const struct device *dev, struct usb_device *udev);
 
 /**
  * @brief Optional: controller-wide HCD device teardown (@c free_dev hook).
