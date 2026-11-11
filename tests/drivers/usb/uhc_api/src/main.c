@@ -77,12 +77,6 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 	zassert_equal(uhc_device_free(NULL, &udev), -EINVAL);
 	zassert_equal(uhc_device_free(uhc, NULL), -EINVAL);
 
-	zassert_ok(uhc_prepare_enum(uhc, &udev));
-	zassert_equal(uhc_attach_device(uhc, &udev), -ENOTSUP);
-	zassert_equal(uhc_assign_address(uhc, &udev, &addr), -ENOTSUP);
-	uhc_release_device(uhc, &udev);
-	uhc_free_dev(uhc);
-
 	zassert_equal(uhc_add_endpoints(NULL, &udev), -EINVAL);
 	zassert_equal(uhc_add_endpoints(uhc, NULL), -EINVAL);
 }

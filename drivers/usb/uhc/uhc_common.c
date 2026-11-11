@@ -512,29 +512,6 @@ out_steady:
 	return steady;
 }
 
-void uhc_free_dev(const struct device *dev)
-{
-	const struct uhc_driver_api *api;
-
-	if (dev == NULL) {
-		return;
-	}
-
-	api = DEVICE_API_GET(uhc, dev);
-
-	if (api->free_dev == NULL) {
-		return;
-	}
-
-	api->lock(dev);
-
-	if (uhc_is_initialized(dev)) {
-		api->free_dev(dev);
-	}
-
-	api->unlock(dev);
-}
-
 int uhc_device_alloc(const struct device *dev, struct usb_device *udev)
 {
 	const struct uhc_driver_api *api;
@@ -620,36 +597,6 @@ int uhc_device_free(const struct device *dev, struct usb_device *udev)
 	ret = api->device_free(dev, udev);
 
 out_free:
-	api->unlock(dev);
-
-	return ret;
-}
-
-int uhc_assign_address(const struct device *dev, struct usb_device *udev, uint8_t *addr_out)
-{
-	const struct uhc_driver_api *api;
-	int ret;
-
-	if (dev == NULL || udev == NULL || addr_out == NULL) {
-		return -EINVAL;
-	}
-
-	api = DEVICE_API_GET(uhc, dev);
-
-	if (api->assign_address == NULL) {
-		return -ENOTSUP;
-	}
-
-	api->lock(dev);
-
-	if (!uhc_is_initialized(dev)) {
-		ret = -EPERM;
-		goto out_assign;
-	}
-
-	ret = api->assign_address(dev, udev, addr_out);
-
-out_assign:
 	api->unlock(dev);
 
 	return ret;

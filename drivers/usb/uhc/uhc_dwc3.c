@@ -1606,62 +1606,6 @@ int uhc_dwc3_xhci_set_tr_dequeue(struct uhc_dwc3_data *priv, struct xhci_dev_slo
 	return xhci_cmd_set_tr_dequeue_deq(priv, slot, ep_index, deq);
 }
 
-static int uhc_dwc3_assign_address(const struct device *dev, struct usb_device *udev,
-				   uint8_t *addr_out)
-{
-	return uhc_dwc3_device_address(dev, udev, addr_out);
-}
-
-static int uhc_dwc3_prepare_enum(const struct device *dev, struct usb_device *udev)
-{
-	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-
-	if (udev == NULL) {
-		return -EINVAL;
-	}
-
-	if (udev->hub != NULL) {
-		return -EINVAL;
-	}
-
-	if (priv->connect_udev == udev) {
-		return 0;
-	}
-
-	if (priv->connect_udev != NULL) {
-		return -EBUSY;
-	}
-
-	priv->connect_udev = udev;
-
-	return 0;
-}
-
-static int uhc_dwc3_attach_device(const struct device *dev, struct usb_device *udev)
-{
-	if (udev == NULL || udev->hub == NULL) {
-		return -EINVAL;
-	}
-
-	return uhc_dwc3_device_alloc(dev, udev);
-}
-
-static void uhc_dwc3_release_device(const struct device *dev, struct usb_device *udev)
-{
-	(void)uhc_dwc3_device_free(dev, udev);
-}
-
-static void uhc_dwc3_free_dev(const struct device *dev)
-{
-	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-
-	if (priv->op_base == 0U) {
-		return;
-	}
-
-	xhci_teardown_all_slots(priv);
-}
-
 static DEVICE_API(uhc, uhc_dwc3_api) = {
 	.lock = uhc_dwc3_lock,
 	.unlock = uhc_dwc3_unlock,
@@ -1682,11 +1626,6 @@ static DEVICE_API(uhc, uhc_dwc3_api) = {
 	.device_alloc = uhc_dwc3_device_alloc,
 	.device_address = uhc_dwc3_device_address,
 	.device_free = uhc_dwc3_device_free,
-	.assign_address = uhc_dwc3_assign_address,
-	.prepare_enum = uhc_dwc3_prepare_enum,
-	.attach_device = uhc_dwc3_attach_device,
-	.release_device = uhc_dwc3_release_device,
-	.free_dev = uhc_dwc3_free_dev,
 };
 
 /* -------------------------------------------------------------------------- */

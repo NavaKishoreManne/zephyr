@@ -1104,14 +1104,12 @@ New APIs and options
 
   * :c:enumerator:`UHC_EVT_DEV_CONNECTED_SS` in :c:enum:`uhc_event_type`
   * :c:func:`uhc_add_endpoints`
-  * :c:func:`uhc_assign_address`
-  * :c:func:`uhc_attach_device`
+  * :c:func:`uhc_device_address`
+  * :c:func:`uhc_device_alloc`
   * :c:func:`uhc_ep_sync_after_clear_feature`
   * :c:func:`uhc_eps_verify_steady`
-  * :c:func:`uhc_free_dev`
   * :c:func:`uhc_post_configure_steady`
-  * :c:func:`uhc_prepare_enum`
-  * :c:func:`uhc_release_device`
+  * :c:func:`uhc_device_free`
   * Optional :c:struct:`uhc_driver_api` callbacks for the above helpers
 
 * USB Type-C

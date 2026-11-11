@@ -83,8 +83,8 @@ int main(void)
 		return 1;
 	}
 
-	if (uhc_assign_address(uhc, &udev, &addr) != -ENOTSUP) {
-		printk("uhc_assign_address should return -ENOTSUP\n");
+	if (uhc_device_address(uhc, &udev, &addr) != -ENOTSUP) {
+		printk("uhc_device_address should return -ENOTSUP\n");
 		return 1;
 	}
 
@@ -108,8 +108,11 @@ int main(void)
 		return 1;
 	}
 
-	uhc_release_device(uhc, &udev);
-	uhc_free_dev(uhc);
+	err = uhc_device_free(uhc, &udev);
+	if (err != 0) {
+		printk("uhc_device_free failed: %d\n", err);
+		return 1;
+	}
 
 	printk("UHC lifecycle OK\n");
 

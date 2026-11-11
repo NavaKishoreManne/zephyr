@@ -365,49 +365,24 @@ __subsystem struct uhc_driver_api {
 	 * Optional: allocate controller resources for @a udev.
 	 *
 	 * Root devices: called before @ref uhc_bus_reset. Hub-tier children:
-	 * called after hub port reset. NULL is success.
+	 * called after hub port reset (no root bus reset). NULL is success.
 	 */
 	int (*device_alloc)(const struct device *dev, struct usb_device *udev);
 	/**
 	 * Optional: perform controller-managed USB addressing.
 	 *
 	 * On success writes the wire address to @a assigned_addr. NULL returns
-	 * @c -ENOTSUP.
+	 * @c -ENOTSUP so the host stack uses Chapter 9 SET_ADDRESS.
 	 */
 	int (*device_address)(const struct device *dev, struct usb_device *udev,
 			      uint8_t *assigned_addr);
 	/**
 	 * Optional: release controller resources for @a udev (disconnect).
+	 *
+	 * No-op success when no private state exists. Must be safe to call
+	 * repeatedly.
 	 */
 	int (*device_free)(const struct device *dev, struct usb_device *udev);
-	/**
-	 * Optional: assign the USB wire address via the controller.
-	 *
-	 * On success, writes the address to @a addr_out. NULL means the host stack
-	 * uses Chapter 9 SET_ADDRESS (@c -ENOTSUP from @ref uhc_assign_address).
-	 */
-	int (*assign_address)(const struct device *dev, struct usb_device *udev, uint8_t *addr_out);
-	/**
-	 * Optional: associate @a udev with the next root @ref uhc_bus_reset.
-	 */
-	int (*prepare_enum)(const struct device *dev, struct usb_device *udev);
-	/**
-	 * Optional: attach a hub-tier child without a root bus reset.
-	 *
-	 * Hub class has already reset the downstream port; the HCD establishes
-	 * controller-side device state for @a udev.
-	 */
-	int (*attach_device)(const struct device *dev, struct usb_device *udev);
-	/**
-	 * Optional: release controller resources for one @a udev (disconnect).
-	 */
-	void (*release_device)(const struct device *dev, struct usb_device *udev);
-	/**
-	 * Optional: controller-wide device teardown (shutdown / error recovery).
-	 *
-	 * Not used for normal single-device disconnect; see release_device.
-	 */
-	void (*free_dev)(const struct device *dev);
 };
 /**
  * @endcond
@@ -754,154 +729,34 @@ bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev
 
 /**
  * @brief Optional: allocate HCD resources for @a udev.
+ *
+ * @retval 0 Success or hook not implemented
+ * @retval negative errno HCD failure
  */
 int uhc_device_alloc(const struct device *dev, struct usb_device *udev);
 
 /**
  * @brief Optional: controller-managed USB device addressing.
  *
- * @retval 0 Address assigned in @a assigned_addr
- * @retval -ENOTSUP Use Chapter 9 SET_ADDRESS
+ * When implemented, the HCD assigns or reports the wire address in
+ * @a assigned_addr. When the hook is unset, returns @c -ENOTSUP and the host
+ * stack performs Chapter 9 SET_ADDRESS after allocating an address locally.
+ *
+ * @param assigned_addr Output USB address (1–127) on success
+ *
+ * @retval 0 Address assigned
+ * @retval -ENOTSUP Hook not implemented (use CH9 SET_ADDRESS)
+ * @retval negative errno HCD failure (no silent CH9 fallback)
  */
 int uhc_device_address(const struct device *dev, struct usb_device *udev, uint8_t *assigned_addr);
 
 /**
  * @brief Release HCD resources for @a udev on disconnect.
+ *
+ * @retval 0 Success or hook not implemented
+ * @retval negative errno HCD teardown failure
  */
 int uhc_device_free(const struct device *dev, struct usb_device *udev);
-
-/**
- * @brief Optional: controller-wide HCD device teardown (@c free_dev hook).
- *
- * For normal disconnect the host stack uses @ref uhc_release_device instead.
- * No-op when @a dev is NULL, the hook is unset, or the controller is not
- * initialized.
- *
- * @param dev UHC device
- */
-void uhc_free_dev(const struct device *dev);
-
-/**
- * @brief Optional: bind @a udev before root @ref uhc_bus_reset.
- *
- * @param dev UHC device
- * @param udev USB device
- *
- * @retval 0 Success, or hook not implemented
- * @retval -EINVAL Invalid @a dev or @a udev
- * @retval -EPERM Controller is not initialized
- * @retval negative errno HCD failure
- */
-static inline int uhc_prepare_enum(const struct device *dev, struct usb_device *udev)
-{
-	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
-	int ret = 0;
-
-	if (dev == NULL || udev == NULL) {
-		return -EINVAL;
-	}
-
-	if (!uhc_is_initialized(dev)) {
-		return -EPERM;
-	}
-
-	if (api->prepare_enum != NULL) {
-		api->lock(dev);
-		ret = api->prepare_enum(dev, udev);
-		api->unlock(dev);
-	}
-
-	return ret;
-}
-
-/**
- * @brief Optional: hub-tier child attach (no root port reset).
- *
- * @param dev UHC device
- * @param udev USB device
- *
- * @retval 0 Success
- * @retval -ENOTSUP Hook not implemented
- * @retval -EINVAL Invalid @a dev or @a udev
- * @retval -EPERM Controller is not initialized
- * @retval negative errno HCD failure
- */
-static inline int uhc_attach_device(const struct device *dev, struct usb_device *udev)
-{
-	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
-	int ret;
-
-	if (dev == NULL || udev == NULL) {
-		return -EINVAL;
-	}
-
-	if (api->attach_device == NULL) {
-		return -ENOTSUP;
-	}
-
-	if (!uhc_is_initialized(dev)) {
-		return -EPERM;
-	}
-
-	api->lock(dev);
-	ret = api->attach_device(dev, udev);
-	api->unlock(dev);
-
-	return ret;
-}
-
-/**
- * @brief Optional: release one device from the controller on disconnect.
- *
- * Invokes the driver @c release_device hook when the controller is initialized.
- * No-op when @a dev or @a udev is NULL, the hook is unset, or the controller
- * is not initialized.
- *
- * @param dev UHC device
- * @param udev USB device whose HCD slot should be released
- */
-static inline void uhc_release_device(const struct device *dev, struct usb_device *udev)
-{
-	const struct uhc_driver_api *api;
-
-	if (dev == NULL || udev == NULL) {
-		return;
-	}
-
-	api = DEVICE_API_GET(uhc, dev);
-
-	if (api->release_device == NULL) {
-		return;
-	}
-
-	if (!uhc_is_initialized(dev)) {
-		return;
-	}
-
-	api->lock(dev);
-	api->release_device(dev, udev);
-	api->unlock(dev);
-}
-
-/**
- * @brief Optional: assign USB device address via the HCD.
- *
- * When implemented, the HCD selects the wire address and returns it in
- * @a addr_out. When the hook is unset,
- * returns @c -ENOTSUP so the host stack may use CH9 SET_ADDRESS instead.
- *
- * @param dev UHC device
- * @param udev USB device
- * @param addr_out On success, USB address selected by the HCD (1–127)
- *
- * @retval 0 Address assigned; @a addr_out is valid
- * @retval -ENOTSUP Hook not implemented (use CH9 SET_ADDRESS)
- * @retval -EINVAL Invalid @a dev, @a udev, or @a addr_out
- * @retval -EPERM Controller is not initialized
- * @retval -EBUSY Requested address already in use (HCD-specific)
- * @retval negative errno Other HCD failure
- */
-int uhc_assign_address(const struct device *dev, struct usb_device *udev, uint8_t *addr_out);
 
 /**
  * @brief Get USB host controller capabilities
