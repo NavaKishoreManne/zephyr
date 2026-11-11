@@ -114,8 +114,8 @@ static int msc_bulk_in_cb(struct usb_device *const udev, struct uhc_transfer *co
  * ENDPOINT_HALT on the stalled bulk-IN endpoint, then optional UHC bulk ring sync.
  *
  * BOT / MSC class: CSW-phase STALL is non-fatal; clear HALT then retry STATUS once.
- * Some HCDs need @ref usbh_ep_sync_after_clear_feature after HALT clear
- * (same pattern as @ref usbh_msc_bot_reset); the HCD must not Reset EP before this runs.
+ * Some HCDs need @ref usbh_endpoint_recover after HALT clear (same pattern as
+ * @ref usbh_msc_bot_reset).
  */
 static int msc_bot_recover_bulk_in_protocol_stall(struct usb_device *udev, uint8_t ep_in,
 						  uint8_t ep_out, const struct device *uhc_dev,
@@ -149,30 +149,22 @@ static int msc_bot_recover_bulk_in_protocol_stall(struct usb_device *udev, uint8
 	LOG_DBG("msc_bot_recover(%s): bulk IN ep=0x%02x HALT cleared (%s)", phase, ep_in, ctx);
 
 	if (uhc_dev != NULL) {
-		USBH_MSC_FLOW_INF("msc_flow: %s recover STALL (%s): UHC bulk sync", phase, ctx);
-		r = usbh_ep_sync_after_clear_feature(udev);
+		USBH_MSC_FLOW_INF("msc_flow: %s recover STALL (%s): HCD endpoint recover", phase,
+				  ctx);
+		r = usbh_endpoint_recover(udev, ep_in, UHC_EP_RECOVERY_CLEAR_HALT);
 		if (r != 0) {
-			LOG_WRN("msc_bot_recover(%s): UHC bulk sync after HALT "
+			LOG_WRN("msc_bot_recover(%s): endpoint recover after HALT "
 				"clear " USBH_MSC_ERR_FMT,
 				phase, USBH_MSC_ERR_ARG(r));
-			return r;
-		}
-
-		r = usbh_eps_verify_steady(udev);
-		USBH_MSC_FLOW_INF(
-			"msc_flow: %s recover STALL (%s): bulk verify steady " USBH_MSC_ERR_FMT,
-			phase, ctx, USBH_MSC_ERR_ARG(r));
-		if (r != 0) {
-			LOG_WRN("msc_bot_recover(%s): bulk not steady after sync — BOT reset",
-				phase);
+			LOG_WRN("msc_bot_recover(%s): trying BOT reset", phase);
 			usbh_msc_bot_reset(udev, uhc_dev);
-			r = usbh_eps_verify_steady(udev);
-			USBH_MSC_FLOW_INF("msc_flow: %s recover STALL (%s): post BOT reset "
-					  "verify " USBH_MSC_ERR_FMT,
+			r = usbh_endpoint_recover(udev, ep_in, UHC_EP_RECOVERY_TRANSPORT_RESET);
+			USBH_MSC_FLOW_INF("msc_flow: %s recover STALL (%s): post BOT reset recover "
+					  USBH_MSC_ERR_FMT,
 					  phase, ctx, USBH_MSC_ERR_ARG(r));
 			if (r != 0) {
-				LOG_WRN("msc_bot_recover(%s): bulk still not steady after BOT "
-					"reset " USBH_MSC_ERR_FMT,
+				LOG_WRN("msc_bot_recover(%s): endpoint recover still failing "
+					USBH_MSC_ERR_FMT,
 					phase, USBH_MSC_ERR_ARG(r));
 				return r;
 			}
@@ -862,7 +854,7 @@ static int msc_bbb_csw_in(struct usb_device *udev, const struct usbh_msc_iface *
  *
  * −EPIPE from @c msc_bot_bulk_in_one is handled as CSW STALL recovery only in the STATUS
  * loop below (logger phase @c "CSW"): CLEAR_FEATURE(HALT) only (no @ref
- * usbh_ep_sync_after_clear_feature; see @ref msc_bot_recover_bulk_in_protocol_stall), retry
+ * usbh_endpoint_recover; see @ref msc_bot_recover_bulk_in_protocol_stall), retry
  * CSW once; second CSW STALL → @ref usbh_msc_bot_reset (class reset §5.3.4 + clear HALT
  * IN/OUT + UHC bulk sync when @a uhc_host) + full CBW re-issue (same tag), bounded by
  * MSC_BBB_STALE_CSW_FULL_CBW_RETRIES.
@@ -1032,9 +1024,6 @@ void usbh_msc_bot_reset(struct usb_device *udev, const struct device *uhc_dev)
 	int r_out;
 	uint8_t ep_bulk_in;
 	uint8_t ep_bulk_out;
-	int bulk_ok_before;
-	int bulk_ok_after;
-	bool steady;
 
 	LOG_INF("======== MSC BOT RESET: EP0 0xFF + bulk IN/OUT CLEAR_FEATURE(HALT) ========");
 
@@ -1060,10 +1049,6 @@ void usbh_msc_bot_reset(struct usb_device *udev, const struct device *uhc_dev)
 	ep_bulk_in = msc.ep_in_addr;
 	ep_bulk_out = msc.ep_out_addr;
 
-	bulk_ok_before = usbh_eps_verify_steady(udev);
-	steady = usbh_post_configure_steady(udev);
-	LOG_DBG("msc_reset: pre MSC RESET: bulk_steady=%d steady_post_cfg=%d", bulk_ok_before,
-		steady ? 1 : 0);
 	LOG_DBG("msc_reset: issuing SETUP on EP0: "
 		"bmRequestType=0x21 bRequest=0xFF wValue=0 wIndex=%u wLength=0 "
 		"(MSC BOT §5.3.4: wIndex = MSC bInterfaceNumber; must match bound iface)",
@@ -1119,35 +1104,17 @@ void usbh_msc_bot_reset(struct usb_device *udev, const struct device *uhc_dev)
 		k_msleep(MSC_BOT_RESET_STEP_MS);
 
 		if (err == 0 && uhc_dev != NULL) {
-			int s = usbh_ep_sync_after_clear_feature(udev);
+			int s = usbh_endpoint_recover(udev, ep_bulk_in,
+						      UHC_EP_RECOVERY_TRANSPORT_RESET);
 
 			if (s != 0) {
-				LOG_WRN("msc_reset: UHC bulk pipe sync after HALT clear failed "
-					"(%d)",
+				LOG_WRN("msc_reset: endpoint recover after HALT clear failed (%d)",
 					s);
 				err = s;
 			} else {
-				LOG_DBG("msc_reset: UHC bulk sync after HALT clear OK");
+				LOG_DBG("msc_reset: endpoint recover after HALT clear OK");
 			}
 		}
-	}
-
-	bulk_ok_after = usbh_eps_verify_steady(udev);
-	steady = usbh_post_configure_steady(udev);
-	LOG_DBG("msc_reset: post bulk steady diag=%d steady_post_cfg=%d", bulk_ok_after,
-		steady ? 1 : 0);
-
-	if (bulk_ok_after != 0) {
-		LOG_WRN("msc_reset: verify FAIL - bulk steady diagnostic reported error");
-	} else {
-		LOG_DBG("msc_reset: bulk steady diagnostic pass");
-	}
-
-	if (!steady) {
-		LOG_WRN("msc_reset: verify FAIL - controller lost post-Configure Endpoint steady "
-			"flag");
-	} else {
-		LOG_DBG("msc_reset: steady since Configure Endpoint");
 	}
 
 	{
@@ -1162,8 +1129,8 @@ void usbh_msc_bot_reset(struct usb_device *udev, const struct device *uhc_dev)
 		}
 	}
 
-	if (err == 0 && bulk_ok_after == 0 && steady) {
-		LOG_INF("msc_reset: === ALL targeted checks PASS (reset + HALT clear + steady) "
+	if (err == 0) {
+		LOG_INF("msc_reset: === ALL targeted checks PASS (reset + HALT clear + recover) "
 			"===");
 	} else {
 		LOG_WRN("msc_reset: === one or more checks FAILED ===");

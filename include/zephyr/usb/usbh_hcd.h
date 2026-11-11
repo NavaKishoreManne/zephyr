@@ -19,6 +19,7 @@
 
 #include <stdbool.h>
 #include <zephyr/device.h>
+#include <zephyr/drivers/usb/uhc.h>
 #include <zephyr/usb/usbh.h>
 
 #ifdef __cplusplus
@@ -43,6 +44,20 @@ static inline const struct device *usbh_hcd_dev(const struct usb_device *udev)
  * @retval -ENOTSUP HCD does not implement the hook.
  */
 int usbh_ep_sync_after_clear_feature(struct usb_device *udev);
+
+/**
+ * @brief Recover an endpoint after a USB-level recovery event.
+ *
+ * @param udev USB device
+ * @param ep Endpoint address (0 where the HCD applies device-wide recovery)
+ * @param reason Recovery reason
+ *
+ * @retval 0 Endpoint ready for a new transfer
+ * @retval -ENODEV Device disconnected
+ * @retval negative errno Recovery failed
+ */
+int usbh_endpoint_recover(struct usb_device *udev, uint8_t ep,
+			  enum uhc_ep_recovery_reason reason);
 
 /**
  * @brief Ask the HCD whether configured endpoints appear steady.

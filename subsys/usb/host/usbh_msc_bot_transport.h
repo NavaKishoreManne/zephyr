@@ -10,7 +10,7 @@
  *
  * Implements CBW / DATA / CSW on top of Chapter 9 control requests and bulk UHC
  * transfers. Callers pass an optional @c uhc_dev pointer so recovery paths can
- * invoke @ref usbh_ep_sync_after_clear_feature and related HCD helpers.
+ * invoke @ref usbh_endpoint_recover when bulk pipes need HCD recovery.
  */
 
 #ifndef SUBSYS_USB_HOST_USBH_MSC_BOT_TRANSPORT_H_
