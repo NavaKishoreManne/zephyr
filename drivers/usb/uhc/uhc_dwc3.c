@@ -1225,11 +1225,11 @@ static int uhc_dwc3_ep_enqueue(const struct device *dev, struct uhc_transfer *co
 }
 
 /*
- * Host stack: SET_CONFIGURATION, full configuration descriptor read, and
- * parse_configuration_descriptor() (interfaces + ep_in/ep_out) complete
- * before this runs. Issue xHCI Configure Endpoint and program per-DCI rings.
+ * Host stack: SET_CONFIGURATION (or updated interface/alternate state), full
+ * configuration descriptor read, and parse_configuration_descriptor()
+ * complete before this runs. Batch endpoint programming for @a udev.
  */
-static int uhc_dwc3_add_endpoints(const struct device *dev, struct usb_device *const udev)
+static int uhc_dwc3_endpoints_commit(const struct device *dev, struct usb_device *const udev)
 {
 	struct uhc_dwc3_data *priv = uhc_get_private(dev);
 	struct xhci_dev_slot *slot = xhci_slot_udev(priv, udev);
@@ -1296,11 +1296,21 @@ static int uhc_dwc3_add_endpoints(const struct device *dev, struct usb_device *c
 
 	err = xhci_dwc3_configure_non_ep0(priv, udev);
 	if (err) {
-		LOG_ERR("Configure Endpoint failed: %d", err);
+		LOG_ERR("endpoint commit failed: %d", err);
 		return err;
 	}
 
-	return 0;
+	err = xhci_dwc3_bulk_output_eps_steady(priv, udev);
+	if (err == -ENOENT) {
+		return 0;
+	}
+
+	return err;
+}
+
+static int uhc_dwc3_add_endpoints(const struct device *dev, struct usb_device *const udev)
+{
+	return uhc_dwc3_endpoints_commit(dev, udev);
 }
 
 static uint8_t xhci_xfer_ep_dci(const struct uhc_transfer *xfer)
@@ -1619,6 +1629,7 @@ static DEVICE_API(uhc, uhc_dwc3_api) = {
 	.bus_resume = uhc_dwc3_bus_resume,
 	.ep_enqueue = uhc_dwc3_ep_enqueue,
 	.ep_dequeue = uhc_dwc3_ep_dequeue,
+	.endpoints_commit = uhc_dwc3_endpoints_commit,
 	.add_endpoints = uhc_dwc3_add_endpoints,
 	.eps_verify_steady = dwc3_eps_verify_steady_cb,
 	.ep_sync_after_clear_feature = dwc3_ep_sync_after_clear_feature_cb,
