@@ -69,7 +69,7 @@ config USBH_USB2_ENUM_SCHEME
 	default n
 	help
 	  USB2 enumeration order in usbh_device_init() with optional HCD
-	  uhc_assign_address instead of legacy SET_ADDRESS.
+	  uhc_device_address instead of legacy SET_ADDRESS.
 
 config USBH_USB2_ENUM_SECOND_RESET
 	bool "Second bus reset after first GET_DESCRIPTOR"
