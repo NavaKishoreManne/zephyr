@@ -155,25 +155,64 @@ static void xhci_bulk_giveback_first_trb(struct uhc_dwc3_data *priv, struct xhci
 	ring_ep_doorbell(priv, slot_id, dci);
 }
 
-static int dwc3_ep_sync_after_clear_feature_cb(const struct device *dev, struct usb_device *udev)
+static int dwc3_bulk_recover_after_usb_event(struct uhc_dwc3_data *priv, struct usb_device *udev,
+					     enum uhc_ep_recovery_reason reason)
+{
+	const struct uhc_dwc3_config *cfg = priv->dev->config;
+	bool force_drop_add =
+		xhci_plat_quirk(&cfg->xhci_plat, XHCI_QUIRK_BULK_FORCE_DROP_ADD);
+	int ret;
+
+	if (reason == UHC_EP_RECOVERY_TRANSPORT_RESET) {
+		force_drop_add = true;
+	}
+
+	UHC_DWC3_BULK_FLOW_INF("uhc_flow: endpoint recover addr=%u reason=%u force_drop_add=%d",
+			       (unsigned int)udev->addr, (unsigned int)reason,
+			       force_drop_add ? 1 : 0);
+
+	ret = xhci_bulk_eps_reconfigure_drop_add(priv, udev, force_drop_add);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = xhci_dwc3_bulk_output_eps_steady(priv, udev);
+	if (ret == -ENOENT) {
+		return 0;
+	}
+
+	return ret;
+}
+
+static int dwc3_endpoint_recover_cb(const struct device *dev, struct usb_device *udev, uint8_t ep,
+				    enum uhc_ep_recovery_reason reason)
 {
 	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-	const struct uhc_dwc3_config *cfg = dev->config;
-	/*
-	 * Integrated DWC3+xHCI platforms may report RUNNING in the output
-	 * context after CLEAR_FEATURE(HALT) while the pipe is STOPPED.
-	 */
-	const bool force_drop_add =
-		xhci_plat_quirk(&cfg->xhci_plat, XHCI_QUIRK_BULK_FORCE_DROP_ADD);
+	struct xhci_dev_slot *slot;
+
+	ARG_UNUSED(ep);
 
 	if (udev == NULL || udev->cfg_desc == NULL) {
 		return -EINVAL;
 	}
 
-	UHC_DWC3_BULK_FLOW_INF("uhc_flow: bulk sync after HALT clear addr=%u force_drop_add=%d",
-			       (unsigned int)udev->addr, force_drop_add ? 1 : 0);
+	slot = xhci_slot_udev(priv, udev);
+	if (slot == NULL || !slot->active) {
+		return -ENODEV;
+	}
 
-	return xhci_bulk_eps_reconfigure_drop_add(priv, udev, force_drop_add);
+	return dwc3_bulk_recover_after_usb_event(priv, udev, reason);
+}
+
+static int dwc3_ep_sync_after_clear_feature_cb(const struct device *dev, struct usb_device *udev)
+{
+	struct uhc_dwc3_data *priv = uhc_get_private(dev);
+
+	if (udev == NULL || udev->cfg_desc == NULL) {
+		return -EINVAL;
+	}
+
+	return dwc3_bulk_recover_after_usb_event(priv, udev, UHC_EP_RECOVERY_CLEAR_HALT);
 }
 static int uhc_dwc3_lock(const struct device *dev)
 {
@@ -1633,6 +1672,7 @@ static DEVICE_API(uhc, uhc_dwc3_api) = {
 	.add_endpoints = uhc_dwc3_add_endpoints,
 	.eps_verify_steady = dwc3_eps_verify_steady_cb,
 	.ep_sync_after_clear_feature = dwc3_ep_sync_after_clear_feature_cb,
+	.endpoint_recover = dwc3_endpoint_recover_cb,
 	.post_configure_steady = dwc3_post_configure_steady_cb,
 	.device_alloc = uhc_dwc3_device_alloc,
 	.device_address = uhc_dwc3_device_address,
