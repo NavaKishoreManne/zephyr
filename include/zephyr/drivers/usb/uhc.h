@@ -343,6 +343,15 @@ __subsystem struct uhc_driver_api {
 	int (*ep_dequeue)(const struct device *dev,
 			  struct uhc_transfer *const xfer);
 	/**
+	 * Optional: commit active endpoint state for @a udev.
+	 *
+	 * Invoked when the host stack has finished building the active endpoint
+	 * set (for example after SET_CONFIGURATION or SET_INTERFACE). The HCD
+	 * programs hardware and must return success only when endpoints are ready
+	 * for transfer. NULL is success (no-op).
+	 */
+	int (*endpoints_commit)(const struct device *dev, struct usb_device *udev);
+	/**
 	 * Optional: commit configured endpoints after SET_CONFIGURATION.
 	 *
 	 * Host stack has populated @a udev endpoint descriptors; the HCD programs
@@ -673,6 +682,23 @@ int uhc_disable(const struct device *dev);
  * @retval -EALREADY controller is already uninitialized
  */
 int uhc_shutdown(const struct device *dev);
+
+/**
+ * @brief Commit active endpoint state for @a udev to the host controller
+ *
+ * Call when the host stack has completed the active USB endpoint state for
+ * @a udev (descriptors parsed for the current configuration or alternate
+ * setting). The HCD applies that state and returns only when endpoints are
+ * ready for new transfers, or returns an error.
+ *
+ * @param dev  UHC device
+ * @param udev USB device with endpoint descriptors populated
+ *
+ * @return 0 on success or if the driver has no optional hook; negative errno on failure.
+ * @retval -EINVAL Invalid @a dev or @a udev
+ * @retval -EPERM controller is not initialized
+ */
+int uhc_endpoints_commit(const struct device *dev, struct usb_device *udev);
 
 /**
  * @brief Notify UHC after SET_CONFIGURATION (descriptor tree parsed)

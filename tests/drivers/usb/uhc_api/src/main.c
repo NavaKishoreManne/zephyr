@@ -60,6 +60,7 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 
 	memset(&udev, 0, sizeof(udev));
 
+	zassert_ok(uhc_endpoints_commit(uhc, &udev));
 	zassert_ok(uhc_add_endpoints(uhc, &udev));
 	zassert_ok(uhc_eps_verify_steady(uhc, &udev));
 	zassert_ok(uhc_ep_sync_after_clear_feature(uhc, &udev));
@@ -77,6 +78,8 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 	zassert_equal(uhc_device_free(NULL, &udev), -EINVAL);
 	zassert_equal(uhc_device_free(uhc, NULL), -EINVAL);
 
+	zassert_equal(uhc_endpoints_commit(NULL, &udev), -EINVAL);
+	zassert_equal(uhc_endpoints_commit(uhc, NULL), -EINVAL);
 	zassert_equal(uhc_add_endpoints(NULL, &udev), -EINVAL);
 	zassert_equal(uhc_add_endpoints(uhc, NULL), -EINVAL);
 }

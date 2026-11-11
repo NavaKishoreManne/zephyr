@@ -394,6 +394,34 @@ uhc_shutdown_error:
 
 	return ret;
 }
+int uhc_endpoints_commit(const struct device *dev, struct usb_device *udev)
+{
+	const struct uhc_driver_api *api;
+	int ret = 0;
+
+	if (dev == NULL || udev == NULL) {
+		return -EINVAL;
+	}
+
+	api = DEVICE_API_GET(uhc, dev);
+
+	api->lock(dev);
+
+	if (!uhc_is_initialized(dev)) {
+		ret = -EPERM;
+		goto out_commit;
+	}
+
+	if (api->endpoints_commit != NULL) {
+		ret = api->endpoints_commit(dev, udev);
+	}
+
+out_commit:
+	api->unlock(dev);
+
+	return ret;
+}
+
 int uhc_add_endpoints(const struct device *dev, struct usb_device *udev)
 {
 	const struct uhc_driver_api *api;
