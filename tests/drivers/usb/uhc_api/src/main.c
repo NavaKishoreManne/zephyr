@@ -64,6 +64,8 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 	zassert_ok(uhc_add_endpoints(uhc, &udev));
 	zassert_ok(uhc_eps_verify_steady(uhc, &udev));
 	zassert_ok(uhc_ep_sync_after_clear_feature(uhc, &udev));
+	zassert_ok(uhc_endpoint_recover(uhc, &udev, 0x81, UHC_EP_RECOVERY_CLEAR_HALT));
+	zassert_ok(uhc_endpoint_recover(uhc, &udev, 0x81, UHC_EP_RECOVERY_TRANSPORT_RESET));
 	zassert_true(uhc_post_configure_steady(uhc, &udev));
 	zassert_ok(uhc_device_alloc(uhc, &udev));
 	zassert_equal(uhc_device_address(uhc, &udev, &addr), -ENOTSUP);
@@ -82,6 +84,10 @@ ZTEST(uhc_api, test_optional_wrappers_without_hcd_hooks)
 	zassert_equal(uhc_endpoints_commit(uhc, NULL), -EINVAL);
 	zassert_equal(uhc_add_endpoints(NULL, &udev), -EINVAL);
 	zassert_equal(uhc_add_endpoints(uhc, NULL), -EINVAL);
+	zassert_equal(uhc_endpoint_recover(NULL, &udev, 0x81, UHC_EP_RECOVERY_CLEAR_HALT), -EINVAL);
+	zassert_equal(uhc_endpoint_recover(uhc, NULL, 0x81, UHC_EP_RECOVERY_CLEAR_HALT), -EINVAL);
+	zassert_equal(uhc_endpoint_recover(uhc, &udev, 0x81, (enum uhc_ep_recovery_reason)99),
+		      -EINVAL);
 }
 
 ZTEST(uhc_api, test_xfer_return_ignores_duplicate_completion)

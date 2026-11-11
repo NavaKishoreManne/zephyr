@@ -46,6 +46,19 @@ enum usb_device_state {
 /**
  * @brief USB device operating speed
  */
+/**
+ * @brief USB endpoint recovery reason (host-visible)
+ *
+ * Identifies the USB-level event that required host-controller recovery
+ * for an endpoint pipe.
+ */
+enum uhc_ep_recovery_reason {
+	/** CLEAR_FEATURE(ENDPOINT_HALT) completed on the endpoint */
+	UHC_EP_RECOVERY_CLEAR_HALT,
+	/** Class transport reset completed (e.g. BOT reset) after halt clear */
+	UHC_EP_RECOVERY_TRANSPORT_RESET,
+};
+
 enum usb_device_speed {
 	/** Device is probably not connected */
 	USB_SPEED_UNKNOWN,
@@ -365,6 +378,13 @@ __subsystem struct uhc_driver_api {
 	 */
 	int (*eps_verify_steady)(const struct device *dev, struct usb_device *udev);
 	int (*ep_sync_after_clear_feature)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: recover an endpoint after a USB-level recovery action.
+	 *
+	 * Return 0 only when @a ep is ready for a new transfer. NULL is success.
+	 */
+	int (*endpoint_recover)(const struct device *dev, struct usb_device *udev, uint8_t ep,
+				enum uhc_ep_recovery_reason reason);
 	/**
 	 * Optional: report whether @a udev endpoint programming is stable after
 	 * add_endpoints(). NULL treats the device as steady.
@@ -741,6 +761,25 @@ int uhc_eps_verify_steady(const struct device *dev, struct usb_device *udev);
  * @retval negative errno on programming failure
  */
 int uhc_ep_sync_after_clear_feature(const struct device *dev, struct usb_device *udev);
+
+/**
+ * @brief Recover an endpoint after a USB-level recovery event
+ *
+ * @param dev UHC device
+ * @param udev USB device
+ * @param ep Endpoint address affected by the recovery (0 to apply device-wide
+ *	     recovery where the HCD requires it)
+ * @param reason Host-visible recovery reason
+ *
+ * @retval 0 Endpoint ready for a new transfer, or hook not implemented
+ * @retval -EINVAL Invalid argument
+ * @retval -ENODEV Device disconnected
+ * @retval -ETIMEDOUT Recovery did not complete in bounded time
+ * @retval -EPERM Controller is not initialized
+ * @retval negative errno Endpoint cannot be reused safely
+ */
+int uhc_endpoint_recover(const struct device *dev, struct usb_device *udev, uint8_t ep,
+			 enum uhc_ep_recovery_reason reason);
 
 /**
  * @brief Optional: query whether @a udev is steady since add_endpoints().

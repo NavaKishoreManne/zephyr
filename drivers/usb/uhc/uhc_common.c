@@ -510,6 +510,42 @@ out_sync:
 	return ret;
 }
 
+int uhc_endpoint_recover(const struct device *dev, struct usb_device *udev, uint8_t ep,
+			 enum uhc_ep_recovery_reason reason)
+{
+	const struct uhc_driver_api *api;
+	int ret;
+
+	if (dev == NULL || udev == NULL) {
+		return -EINVAL;
+	}
+
+	if (reason != UHC_EP_RECOVERY_CLEAR_HALT &&
+	    reason != UHC_EP_RECOVERY_TRANSPORT_RESET) {
+		return -EINVAL;
+	}
+
+	api = DEVICE_API_GET(uhc, dev);
+
+	if (api->endpoint_recover == NULL) {
+		return 0;
+	}
+
+	api->lock(dev);
+
+	if (!uhc_is_initialized(dev)) {
+		ret = -EPERM;
+		goto out_recover;
+	}
+
+	ret = api->endpoint_recover(dev, udev, ep, reason);
+
+out_recover:
+	api->unlock(dev);
+
+	return ret;
+}
+
 bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev)
 {
 	const struct uhc_driver_api *api;
