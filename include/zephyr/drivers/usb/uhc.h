@@ -365,31 +365,12 @@ __subsystem struct uhc_driver_api {
 	 */
 	int (*endpoints_commit)(const struct device *dev, struct usb_device *udev);
 	/**
-	 * Optional: commit configured endpoints after SET_CONFIGURATION.
-	 *
-	 * Host stack has populated @a udev endpoint descriptors; the HCD programs
-	 * hardware for bulk/control/interrupt use. NULL is success (no-op).
-	 */
-	int (*add_endpoints)(const struct device *dev, struct usb_device *udev);
-
-	/*
-	 * Optional class recovery hooks (e.g. after CLEAR_FEATURE HALT).
-	 * NULL => no-op / success where documented on the wrappers below.
-	 */
-	int (*eps_verify_steady)(const struct device *dev, struct usb_device *udev);
-	int (*ep_sync_after_clear_feature)(const struct device *dev, struct usb_device *udev);
-	/**
 	 * Optional: recover an endpoint after a USB-level recovery action.
 	 *
 	 * Return 0 only when @a ep is ready for a new transfer. NULL is success.
 	 */
 	int (*endpoint_recover)(const struct device *dev, struct usb_device *udev, uint8_t ep,
 				enum uhc_ep_recovery_reason reason);
-	/**
-	 * Optional: report whether @a udev endpoint programming is stable after
-	 * add_endpoints(). NULL treats the device as steady.
-	 */
-	bool (*post_configure_steady)(const struct device *dev, struct usb_device *udev);
 	/**
 	 * Optional: allocate controller resources for @a udev.
 	 *
@@ -637,7 +618,7 @@ int uhc_ep_enqueue(const struct device *dev, struct uhc_transfer *const xfer);
 /**
  * @brief Remove a USB host controller transfer from the queue
  *
- * Stop Endpoint and wake waiter with -ECONNRESET.
+ * Cancel the transfer and wake the waiter with -ECONNRESET.
  *
  * @param[in] dev    Pointer to device struct of the driver instance
  * @param[in] xfer   Pointer to UHC transfer
@@ -721,48 +702,6 @@ int uhc_shutdown(const struct device *dev);
 int uhc_endpoints_commit(const struct device *dev, struct usb_device *udev);
 
 /**
- * @brief Notify UHC after SET_CONFIGURATION (descriptor tree parsed)
- *
- * Invoked when the host stack has read the full configuration descriptor and
- * walked interfaces and endpoint descriptors. The HCD commits endpoint
- * programming for @a udev (optional @c add_endpoints hook).
- *
- * @param dev  UHC device
- * @param udev USB device with ep_in/ep_out and ifaces populated
- *
- * @return 0 on success or if the driver has no optional hook; negative errno on failure.
- * @retval -EINVAL Invalid @a dev or @a udev
- * @retval -EPERM controller is not initialized
- */
-int uhc_add_endpoints(const struct device *dev, struct usb_device *udev);
-
-/**
- * @brief Optional: verify configured endpoint contexts appear steady (HCD-defined).
- *
- * @param dev UHC device
- * @param udev USB device with configured endpoints
- *
- * @retval 0 Endpoints steady, or hook not implemented
- * @retval -EINVAL Invalid @a dev or @a udev
- * @retval -EPERM controller is not initialized
- * @retval negative errno when verification detects mismatch
- */
-int uhc_eps_verify_steady(const struct device *dev, struct usb_device *udev);
-
-/**
- * @brief Optional: resync HCD endpoint state after CLEAR_FEATURE(ENDPOINT_HALT).
- *
- * @param dev UHC device
- * @param udev USB device
- *
- * @retval 0 Sync completed, or hook not implemented
- * @retval -EINVAL Invalid @a dev or @a udev
- * @retval -EPERM controller is not initialized
- * @retval negative errno on programming failure
- */
-int uhc_ep_sync_after_clear_feature(const struct device *dev, struct usb_device *udev);
-
-/**
  * @brief Recover an endpoint after a USB-level recovery event
  *
  * @param dev UHC device
@@ -780,17 +719,6 @@ int uhc_ep_sync_after_clear_feature(const struct device *dev, struct usb_device 
  */
 int uhc_endpoint_recover(const struct device *dev, struct usb_device *udev, uint8_t ep,
 			 enum uhc_ep_recovery_reason reason);
-
-/**
- * @brief Optional: query whether @a udev is steady since add_endpoints().
- *
- * @param dev UHC device
- * @param udev USB device that completed configuration
- *
- * @retval true Hook is unset, reports steady state, or @a udev is steady
- * @retval false Invalid arguments or controller not initialized
- */
-bool uhc_post_configure_steady(const struct device *dev, struct usb_device *udev);
 
 /**
  * @brief Optional: allocate HCD resources for @a udev.

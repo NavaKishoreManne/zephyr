@@ -66,20 +66,15 @@ int main(void)
 
 	memset(&udev, 0, sizeof(udev));
 
-	err = uhc_add_endpoints(uhc, &udev);
+	err = uhc_endpoints_commit(uhc, &udev);
 	if (err != 0) {
-		printk("uhc_add_endpoints failed: %d\n", err);
+		printk("uhc_endpoints_commit failed: %d\n", err);
 		return 1;
 	}
 
-	err = uhc_eps_verify_steady(uhc, &udev);
+	err = uhc_endpoint_recover(uhc, &udev, 0x81, UHC_EP_RECOVERY_CLEAR_HALT);
 	if (err != 0) {
-		printk("uhc_eps_verify_steady failed: %d\n", err);
-		return 1;
-	}
-
-	if (!uhc_post_configure_steady(uhc, &udev)) {
-		printk("uhc_post_configure_steady unexpected\n");
+		printk("uhc_endpoint_recover failed: %d\n", err);
 		return 1;
 	}
 

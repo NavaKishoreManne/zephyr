@@ -204,16 +204,6 @@ static int dwc3_endpoint_recover_cb(const struct device *dev, struct usb_device 
 	return dwc3_bulk_recover_after_usb_event(priv, udev, reason);
 }
 
-static int dwc3_ep_sync_after_clear_feature_cb(const struct device *dev, struct usb_device *udev)
-{
-	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-
-	if (udev == NULL || udev->cfg_desc == NULL) {
-		return -EINVAL;
-	}
-
-	return dwc3_bulk_recover_after_usb_event(priv, udev, UHC_EP_RECOVERY_CLEAR_HALT);
-}
 static int uhc_dwc3_lock(const struct device *dev)
 {
 	return uhc_lock_internal(dev, K_FOREVER);
@@ -1347,11 +1337,6 @@ static int uhc_dwc3_endpoints_commit(const struct device *dev, struct usb_device
 	return err;
 }
 
-static int uhc_dwc3_add_endpoints(const struct device *dev, struct usb_device *const udev)
-{
-	return uhc_dwc3_endpoints_commit(dev, udev);
-}
-
 static uint8_t xhci_xfer_ep_dci(const struct uhc_transfer *xfer)
 {
 	if (USB_EP_GET_IDX(xfer->ep) == 0U) {
@@ -1425,34 +1410,6 @@ static int uhc_dwc3_ep_dequeue(const struct device *dev, struct uhc_transfer *co
 	}
 
 	return xhci_cancel_ep_xfer(priv, slot, dci, (struct uhc_transfer *)xfer, -ECONNRESET);
-}
-
-static int dwc3_eps_verify_steady_cb(const struct device *dev, struct usb_device *udev)
-{
-	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-
-	if (udev == NULL || !uhc_is_enabled(dev)) {
-		return -EINVAL;
-	}
-
-	return xhci_dwc3_bulk_output_eps_steady(priv, udev);
-}
-
-static bool dwc3_post_configure_steady_cb(const struct device *dev, struct usb_device *udev)
-{
-	struct uhc_dwc3_data *priv = uhc_get_private(dev);
-	struct xhci_dev_slot *slot;
-
-	if (!uhc_is_enabled(dev) || udev == NULL || udev->slot_id == 0U) {
-		return false;
-	}
-
-	slot = xhci_slot_udev(priv, udev);
-	if (slot == NULL || !slot->active) {
-		return false;
-	}
-
-	return slot->steady_after_configure_ep;
 }
 
 static int uhc_dwc3_device_alloc(const struct device *dev, struct usb_device *udev)
@@ -1669,11 +1626,7 @@ static DEVICE_API(uhc, uhc_dwc3_api) = {
 	.ep_enqueue = uhc_dwc3_ep_enqueue,
 	.ep_dequeue = uhc_dwc3_ep_dequeue,
 	.endpoints_commit = uhc_dwc3_endpoints_commit,
-	.add_endpoints = uhc_dwc3_add_endpoints,
-	.eps_verify_steady = dwc3_eps_verify_steady_cb,
-	.ep_sync_after_clear_feature = dwc3_ep_sync_after_clear_feature_cb,
 	.endpoint_recover = dwc3_endpoint_recover_cb,
-	.post_configure_steady = dwc3_post_configure_steady_cb,
 	.device_alloc = uhc_dwc3_device_alloc,
 	.device_address = uhc_dwc3_device_address,
 	.device_free = uhc_dwc3_device_free,

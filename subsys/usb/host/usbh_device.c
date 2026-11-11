@@ -847,8 +847,8 @@ static int usbh_device_set_configuration_locked(struct usb_device *const udev, c
 	}
 
 	/*
-	 * After SET_CONFIGURATION and descriptor parse, the HCD programs
-	 * endpoints (Configure Endpoint, bandwidth). Host stack has filled
+	 * After SET_CONFIGURATION and descriptor parse, commit active endpoints
+	 * to the HCD. Host stack has filled
 	 * udev->ifaces[] and ep_in/ep_out[] with alternate 0 endpoints.
 	 */
 	LOG_INF("usbh: HCD commit endpoints - cfg=%u addr=%u speed=%u", num, udev->addr,

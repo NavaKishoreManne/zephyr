@@ -7,8 +7,8 @@
 Overview
 ********
 
-Exercises default implementations of optional UHC callbacks (add endpoints,
-steady-state checks, assign address fallback) and ``uhc_xfer_return()`` on the
+Exercises default implementations of optional UHC callbacks (endpoint commit,
+endpoint recovery, assign address fallback) and ``uhc_xfer_return()`` on the
 virtual UHC. Matches the coverage intent of ``tests/drivers/usb/uhc_api``.
 
 Building and Running

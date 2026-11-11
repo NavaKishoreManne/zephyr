@@ -228,10 +228,6 @@ static void usb_host_msc_try_bringup(struct usb_device *udev)
 #endif
 
 #if !IS_ENABLED(CONFIG_USBH_MSC_AUTO_BRINGUP)
-	for (int steady = 0; steady < 50 && !usbh_post_configure_steady(udev); steady++) {
-		k_msleep(10);
-	}
-
 	err = usb_host_msc_storage_bringup(udev, uhs_ctx.dev);
 	if ((err == -ETIMEDOUT || err == -EALREADY) && usbh_device_still_connected(udev)) {
 		LOG_WRN("main: MSC bringup err=%d — retry after detach/settle", err);

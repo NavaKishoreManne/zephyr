@@ -2162,9 +2162,10 @@ USB
   :c:member:`usb_device.depth` (0 for the root-tier device, previously ``level`` was 1), and
   initialize :c:member:`usb_device.slot_id` to 0 until the HCD assigns a slot. Out-of-tree USB
   host stack or class code must use the new names. Optional :c:struct:`uhc_driver_api` hooks
-  and the matching :ref:`uhc_api` helpers (:c:func:`uhc_add_endpoints`,
-  :c:func:`uhc_device_address`, :c:func:`uhc_device_alloc`, :c:func:`uhc_device_free`, and
-  related functions) are NULL-safe no-ops or return
+  and the matching :ref:`uhc_api` helpers (:c:func:`uhc_endpoints_commit`,
+  :c:func:`uhc_endpoint_recover`, :c:func:`uhc_device_address`,
+  :c:func:`uhc_device_alloc`, :c:func:`uhc_device_free`, and related functions) are NULL-safe
+  no-ops or return
   :c:macro:`-ENOTSUP` where documented when a driver does not implement them.
 
 * The ``clock-reference`` property of :dtcompatible:`st,stm32u5-otghs-phy` is now deprecated
