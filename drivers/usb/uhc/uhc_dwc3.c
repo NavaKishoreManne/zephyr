@@ -1237,7 +1237,6 @@ int xhci_cancel_ep_xfer(struct uhc_dwc3_data *priv, struct xhci_dev_slot *slot, 
 		slot->xfer_result = err;
 		slot->ep0_active_xfer = NULL;
 		xhci_ep0_ring_sync_from_hw(priv, slot);
-		(void)xhci_ep0_recover_slot(priv, slot);
 		k_sem_give(&slot->xfer_sem);
 	} else {
 		slot->bulk_expect_ioc_trb_phys[dci] = 0ULL;

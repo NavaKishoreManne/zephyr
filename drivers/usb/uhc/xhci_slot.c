@@ -188,6 +188,10 @@ int xhci_teardown_slot(struct uhc_dwc3_data *priv, uint8_t sid)
 		}
 	}
 
+	for (unsigned int w = 0U; w < 500U && atomic_get(&slot->ep0_recover_in_flight) != 0; w++) {
+		k_busy_wait(100);
+	}
+
 	LOG_DBG("Disable Slot %u", (unsigned int)sid);
 	ret = xhci_disable_slot_cmd(priv, sid);
 	if (ret != 0) {
