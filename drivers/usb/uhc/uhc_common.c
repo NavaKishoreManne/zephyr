@@ -458,6 +458,45 @@ out_recover:
 	return ret;
 }
 
+int uhc_root_default_state_reset(const struct device *dev, struct usb_device *udev)
+{
+	const struct uhc_driver_api *api;
+	int ret;
+
+	if (dev == NULL || udev == NULL) {
+		return -EINVAL;
+	}
+
+	if (udev->hub != NULL) {
+		return -EINVAL;
+	}
+
+	api = DEVICE_API_GET(uhc, dev);
+
+	api->lock(dev);
+
+	if (!uhc_is_initialized(dev)) {
+		ret = -EPERM;
+		goto out_default_state;
+	}
+
+	if (api->root_port_reset != NULL && api->device_prepare != NULL) {
+		ret = api->root_port_reset(dev, udev);
+		if (ret == 0) {
+			ret = api->device_prepare(dev, udev);
+		}
+	} else if (api->bus_reset != NULL) {
+		ret = api->bus_reset(dev);
+	} else {
+		ret = -ENOTSUP;
+	}
+
+out_default_state:
+	api->unlock(dev);
+
+	return ret;
+}
+
 int uhc_device_alloc(const struct device *dev, struct usb_device *udev)
 {
 	const struct uhc_driver_api *api;

@@ -393,6 +393,23 @@ __subsystem struct uhc_driver_api {
 	 * repeatedly.
 	 */
 	int (*device_free)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: physical root-port reset for root-tier @a udev.
+	 *
+	 * Invoked only from @ref uhc_root_default_state_reset while the controller
+	 * lock is held. Must not allocate device resources or start Chapter 9
+	 * transfers. NULL with @a device_prepare also NULL uses @a bus_reset for
+	 * the full transition.
+	 */
+	int (*root_port_reset)(const struct device *dev, struct usb_device *udev);
+	/**
+	 * Optional: prepare HCD default control endpoint state for @a udev.
+	 *
+	 * Invoked only after a successful @a root_port_reset from
+	 * @ref uhc_root_default_state_reset while the controller lock is held.
+	 * Root-tier devices only; not used for hub-tier enumeration.
+	 */
+	int (*device_prepare)(const struct device *dev, struct usb_device *udev);
 };
 /**
  * @endcond
@@ -719,6 +736,30 @@ int uhc_endpoints_commit(const struct device *dev, struct usb_device *udev);
  */
 int uhc_endpoint_recover(const struct device *dev, struct usb_device *udev, uint8_t ep,
 			 enum uhc_ep_recovery_reason reason);
+
+/**
+ * @brief Root default-state transition after root connect or port reset
+ *
+ * Serialize host-controller root reset and device preparation under one
+ * controller lock so no other UHC operation can interleave between physical
+ * port reset and default control-endpoint readiness.
+ *
+ * Root-tier @a udev only (@c udev->hub == NULL). Does not perform USB Chapter 9
+ * enumeration (no GET_DESCRIPTOR, SET_ADDRESS, or SET_CONFIGURATION).
+ *
+ * When both @c root_port_reset and @c device_prepare driver hooks are
+ * implemented, those run in order. Otherwise falls back to @ref uhc_bus_reset.
+ *
+ * @param dev UHC device
+ * @param udev Root USB device being enumerated
+ *
+ * @retval 0 Device is ready for DEFAULT-state control transfers
+ * @retval -EINVAL Invalid argument or hub-tier @a udev
+ * @retval -ENOTSUP No transition implementation on this controller
+ * @retval -EPERM Controller is not initialized
+ * @retval negative errno HCD failure from reset or preparation
+ */
+int uhc_root_default_state_reset(const struct device *dev, struct usb_device *udev);
 
 /**
  * @brief Optional: allocate HCD resources for @a udev.
