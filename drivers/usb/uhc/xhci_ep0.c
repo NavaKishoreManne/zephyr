@@ -412,7 +412,8 @@ static bool xhci_ep0_recover_slot_live(struct uhc_dwc3_data *priv, struct xhci_d
 		return false;
 	}
 
-	if (xhci_slot_get(priv, sid) != slot || !slot->active || slot->udev == NULL ||
+	if (atomic_get(&slot->ep0_teardown_wait) != 0 ||
+	    xhci_slot_get(priv, sid) != slot || !slot->active || slot->udev == NULL ||
 	    slot->udev->slot_id != sid || slot->ep0_active_xfer != NULL) {
 		return false;
 	}
