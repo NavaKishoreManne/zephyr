@@ -38,6 +38,8 @@ void xhci_slot_reset_sw_rings(struct xhci_dev_slot *slot)
 	xhci_ring_init(&slot->ep0_ring, slot->ep0_trbs, XHCI_EP0_RING_SIZE, 0U);
 	dwc3_dma_flush(slot->ep0_trbs, sizeof(slot->ep0_trbs));
 	slot->ep0_active_xfer = NULL;
+	slot->ep0_expect_ioc_trb_phys = 0ULL;
+	memset(&slot->ep0_td, 0, sizeof(slot->ep0_td));
 	k_sem_reset(&slot->xfer_sem);
 
 	for (unsigned int dci = 2U; dci < 32U; dci++) {
