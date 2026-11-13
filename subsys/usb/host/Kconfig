@@ -100,6 +100,15 @@ config USBH_ENUM_RETRY_DELAY_MS
 	range 0 500
 	depends on USBH_USB2_ENUM_SCHEME
 
+config USBH_GET_DESCRIPTOR_ROOT_RESET
+	bool "Root default-state reset before retrying GET_DESCRIPTOR"
+	default y
+	depends on USBH_USB2_ENUM_SCHEME
+	help
+	  On the root tier, call uhc_root_default_state_reset() before each
+	  GET_DESCRIPTOR retry (after the first attempt). Hub children still
+	  use the delay-only retry path.
+
 config USBH_SET_ADDRESS_RETRY_DELAY_MS
 	int "Milliseconds between SET_ADDRESS retries"
 	default 200
