@@ -614,23 +614,30 @@ void xhci_handle_event(struct uhc_dwc3_data *priv, struct xhci_trb *evt)
 			/* CSC: connect / disconnect (use CCS from this read before W1C) */
 			if (portsc & XHCI_PORTSC_CSC) {
 				if (portsc & XHCI_PORTSC_CCS) {
-					if (priv->root_connect_submitted) {
-						LOG_INF("xHCI: duplicate connect CSC suppressed");
+					if (dwc3_root_port_valid(priv, port_id) &&
+					    priv->root_ports[port_id].connect_submitted) {
+						LOG_INF("xHCI: duplicate connect on port %u suppressed",
+							port_id);
 					} else {
 						priv->root_port = port_id;
-						priv->root_connect_submitted = true;
+						if (dwc3_root_port_valid(priv, port_id)) {
+							priv->root_ports[port_id].connect_submitted = true;
+						}
 						priv->port_speed = XHCI_PORTSC_SPEED(portsc);
-						LOG_INF("xHCI: device connected, speed=%u",
-							priv->port_speed);
-						uhc_submit_event(priv->dev,
-								 xhci_connect_event_capped(
-									 priv, priv->port_speed),
-								 0);
+						LOG_INF("xHCI: device connected port %u, speed=%u",
+							port_id, priv->port_speed);
+						(void)uhc_submit_event_port(
+							priv->dev,
+							xhci_connect_event_capped(priv, priv->port_speed),
+							0, port_id);
 					}
 				} else {
-					priv->root_connect_submitted = false;
-					LOG_INF("xHCI: device disconnected");
-					uhc_submit_event(priv->dev, UHC_EVT_DEV_REMOVED, 0);
+					if (dwc3_root_port_valid(priv, port_id)) {
+						priv->root_ports[port_id].connect_submitted = false;
+					}
+					LOG_INF("xHCI: device disconnected port %u", port_id);
+					(void)uhc_submit_event_port(priv->dev, UHC_EVT_DEV_REMOVED, 0,
+								    port_id);
 				}
 			}
 

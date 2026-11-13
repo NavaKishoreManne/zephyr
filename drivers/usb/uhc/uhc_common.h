@@ -110,4 +110,9 @@ int uhc_submit_event(const struct device *dev,
 		     const enum uhc_event_type type,
 		     const int status);
 
+int uhc_submit_event_port(const struct device *dev,
+			  const enum uhc_event_type type,
+			  const int status,
+			  uint8_t port);
+
 #endif /* ZEPHYR_INCLUDE_UHC_COMMON_H */
