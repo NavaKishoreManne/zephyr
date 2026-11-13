@@ -72,10 +72,6 @@ void usbh_device_disconnect(struct usbh_context *ctx, struct usb_device *udev)
 
 	usbh_class_remove_all(udev);
 
-	if (usbh_device_is_root(ctx, udev)) {
-		ctx->root = NULL;
-	}
-
 	if (sys_dnode_is_linked(&udev->node)) {
 		sys_dlist_remove(&udev->node);
 	}
@@ -83,6 +79,7 @@ void usbh_device_disconnect(struct usbh_context *ctx, struct usb_device *udev)
 	barrier_dmem_fence_full();
 	usbh_device_removed_notify(udev);
 	usbh_device_free(udev);
+	ctx->root = usbh_device_get_root(ctx);
 
 	LOG_DBG("Device removed");
 }
@@ -1284,7 +1281,28 @@ error:
 
 struct usb_device *usbh_device_get_root(struct usbh_context *const ctx)
 {
-	return ctx->root;
+	struct usb_device *udev;
+	struct usb_device *best = NULL;
+	uint8_t best_port = 0U;
+
+	if (ctx == NULL) {
+		return NULL;
+	}
+
+	SYS_DLIST_FOR_EACH_CONTAINER(&ctx->udevs, udev, node) {
+		if (udev->hub != NULL) {
+			continue;
+		}
+
+		if (best == NULL || udev->hub_port < best_port) {
+			best = udev;
+			best_port = udev->hub_port;
+		}
+	}
+
+	ctx->root = best;
+
+	return best;
 }
 
 struct usb_device *usbh_device_find_root_by_port(struct usbh_context *const ctx, uint8_t port)
@@ -1312,28 +1330,25 @@ int usbh_device_connect(struct usbh_context *const ctx, struct usb_device *const
 
 	udev->state = USB_STATE_DEFAULT;
 
-	if (udev->hub == NULL) {
-		if (udev->level == 0U) {
-			udev->level = 1;
-		}
-		if (ctx->root == NULL) {
-			ctx->root = udev;
-		}
+	if (udev->hub == NULL && udev->level == 0U) {
+		udev->level = 1;
 	}
 
 	err = usbh_device_init(udev);
 	if (err != 0) {
 		LOG_ERR("Failed to init new USB device");
-		if (usbh_device_is_root(ctx, udev)) {
-			ctx->root = NULL;
-		}
 
 		if (sys_dnode_is_linked(&udev->node)) {
 			sys_dlist_remove(&udev->node);
 		}
 
 		usbh_device_free(udev);
+		ctx->root = usbh_device_get_root(ctx);
 		return err;
+	}
+
+	if (udev->hub == NULL) {
+		ctx->root = udev;
 	}
 
 	return 0;
